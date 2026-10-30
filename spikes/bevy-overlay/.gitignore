@@ -1,0 +1,3 @@
+/target
+# Screen captures of the user's desktop — never commit
+results/**/shot_*.png

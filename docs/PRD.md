@@ -170,7 +170,7 @@ Pure domain logic, independent of the engine, built test-first (§7.2).
 | Metric | Budget |
 |---|---|
 | CPU while idle/animating | < 1 % |
-| RAM | < ~100 MB |
+| RAM (private working set — Task Manager "Memory") | < 150 MB (raised from ~100 MB on 2026-10-30 after the spike measured a ~100 MB fixed baseline for Bevy + wgpu + DX12 driver) |
 | Animation rate | ≈12–30 fps, frame-capped |
 | Games / fullscreen | zero impact — pet is hidden and not rendering |
 
@@ -203,9 +203,16 @@ click-through must be hand-built (poll global cursor, sample sprite alpha, toggl
 1. Transparent window works with **default driver settings** (changing NVIDIA Control Panel settings = fail).
 2. **Per-pixel** click-through on a real sprite, with no misrouted clicks at the sprite's edge.
 3. Hidden from taskbar **and** Alt-Tab.
-4. < 1 % CPU and < 100 MB RAM while animating at 30 fps for one hour, with no black-window failures.
+4. < 1 % CPU and < 100 MB RAM (since raised to < 150 MB, see §6.2) while animating at 30 fps for one hour, with no black-window failures.
 
 If Bevy fails, run the same spike on Tauri 2.
+
+**Spike result (2026-10-30): Bevy adopted.** Criteria 1–3 pass; criterion 4 passes on CPU (0.46 %),
+fps and stability. Memory measured 101.3 MB private working set — 1.3 MB over the original budget,
+which the owner then raised to < 150 MB (§6.2). The ~100 MB is a fixed cost independent of window
+size; a slow creep (~1.2 MB/h) remains to be checked in a multi-hour run of the real app.
+The required render configuration is recorded in
+[spikes/bevy-overlay/RESULTS.md](../spikes/bevy-overlay/RESULTS.md).
 
 Prior art worth reading: [ddbaker/neko](https://github.com/ddbaker/neko) (Bevy, Windows, mouse
 passthrough), [not-elm/desktop-homunculus](https://github.com/not-elm/desktop-homunculus) (Bevy desktop
@@ -402,6 +409,7 @@ fights at your side, and eventually talks with you — while never getting in yo
 | Core + parallel tracks roadmap | Owner pulls increments as they feel right. |
 | Integer-only nearest-neighbour scaling | Pixel art must stay crisp on a 4K display. |
 | Bevy, gated by spike; Tauri 2 fallback | Best fit for vision; transparency risk is explicitly tested on worst-case hardware. |
+| Bevy adopted; RAM budget raised to < 150 MB (2026-10-30) | Spike passed everything else; Bevy + wgpu + DX12 driver has a ~100 MB fixed baseline, so 150 MB leaves headroom for real art and systems. |
 | Characters as user-addable content packs | Art independence from the binary; custom art; easy curation for any distribution. |
 | Form graph with switchable forms; evolutions as rituals | Growth/transformation is the design signature; no regret, never in the way. |
 | Egg hatchable immediately | Hatching is the onboarding hook. |
