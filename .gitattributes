@@ -1,0 +1,5 @@
+# Normalise line endings: LF in the repo and in working trees, on every machine.
+* text=auto eol=lf
+
+# Binary assets
+*.png binary
