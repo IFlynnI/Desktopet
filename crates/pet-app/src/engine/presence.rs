@@ -318,6 +318,29 @@ mod tests {
     }
 
     #[test]
+    fn given_a_fullscreen_app_reported_before_the_first_update_when_starting_then_the_overlay_never_shows()
+     {
+        // Given: the Overlay starts invisible, and the shell thread reports before `Platform::start` returns
+        let mut engine = Engine::starting_with(Presence::default());
+        let world = engine.app.world_mut();
+        world
+            .query::<&mut Window>()
+            .single_mut(world)
+            .unwrap()
+            .visible = false;
+        engine
+            .shell
+            .send(ShellEvent::FullscreenChanged(true))
+            .unwrap();
+
+        // When
+        engine.app.update();
+
+        // Then
+        assert!(!engine.is_visible());
+    }
+
+    #[test]
     fn given_an_auto_hide_when_the_app_exits_then_it_is_not_kept_as_a_manual_hide() {
         // Given
         let mut engine = Engine::starting_with(Presence::default());

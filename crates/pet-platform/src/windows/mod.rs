@@ -16,6 +16,7 @@ use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use raw_window_handle::RawWindowHandle;
 use windows::Win32::Foundation::HWND;
@@ -58,6 +59,7 @@ impl Platform {
         events: Sender<ShellEvent>,
         wake: Wake,
         tray_icon: TrayIconImage,
+        auto_hide_return_delay: Duration,
     ) -> Self {
         let RawWindowHandle::Win32(handle) = window else {
             panic!("the Overlay on Windows has a Win32 window handle");
@@ -73,7 +75,7 @@ impl Platform {
         Self {
             hit_target,
             hit_test_pause,
-            _shell: ShellThread::spawn(events, wake, tray_icon),
+            _shell: ShellThread::spawn(events, wake, tray_icon, auto_hide_return_delay),
         }
     }
 

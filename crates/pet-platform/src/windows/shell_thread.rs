@@ -5,6 +5,7 @@ use std::cell::OnceCell;
 use std::ffi::c_void;
 use std::sync::mpsc::{self, Sender};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -14,8 +15,6 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WINDOW_STYLE, WM_APP, WM_CLOSE, WM_HOTKEY, WNDCLASSW,
 };
 use windows::core::{PCWSTR, w};
-
-use pet_core::fullscreen::RETURN_DELAY;
 
 use super::foreground::{self, Foreground};
 use super::hotkey::Hotkey;
@@ -123,11 +122,16 @@ impl Drop for MessageWindow {
 
 /// Whatever owns a window or a registration drops here on the way out, in reverse order: the tray icon first, and the
 /// message window last.
-fn run(notifier: Notifier, tray_icon: TrayIconImage, started: Sender<isize>) {
+fn run(
+    notifier: Notifier,
+    tray_icon: TrayIconImage,
+    return_delay: Duration,
+    started: Sender<isize>,
+) {
     NOTIFIER.with(|cell| cell.set(notifier).ok());
     let window = MessageWindow::create();
     let hotkey = Hotkey::register(window.0);
-    let _foreground = Foreground::start(foreground::read_snapshot, notify, RETURN_DELAY);
+    let _foreground = Foreground::start(foreground::read_snapshot, notify, return_delay);
     // The Overlay shows after this, so by then the hotkey works, and a fullscreen app already in front has been reported.
     // If the caller has gone, there's nobody to tell.
     let _ = started.send(window.0.0 as isize);
@@ -151,11 +155,16 @@ pub struct ShellThread {
 }
 
 impl ShellThread {
-    pub fn spawn(events: Sender<ShellEvent>, wake: Wake, tray_icon: TrayIconImage) -> Self {
+    pub fn spawn(
+        events: Sender<ShellEvent>,
+        wake: Wake,
+        tray_icon: TrayIconImage,
+        return_delay: Duration,
+    ) -> Self {
         let (started, window) = mpsc::channel();
         let thread = thread::Builder::new()
             .name("shell".into())
-            .spawn(move || run(Notifier { events, wake }, tray_icon, started))
+            .spawn(move || run(Notifier { events, wake }, tray_icon, return_delay, started))
             .expect("the OS can start a thread");
         Self {
             window: window.recv().expect("the shell thread starts"),

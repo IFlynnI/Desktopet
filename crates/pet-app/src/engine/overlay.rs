@@ -10,6 +10,7 @@ use bevy::window::{
     WindowResolution,
 };
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
+use pet_core::fullscreen::RETURN_DELAY;
 use pet_core::geometry::{Point, Rect};
 use pet_platform::{Platform, ShellEvent};
 
@@ -96,7 +97,7 @@ pub fn attach_platform(
     });
     let window = handle.get_window_handle();
     let tray_icon = placeholder::tray_icon_image();
-    let platform = Platform::start(window, events.0.clone(), wake, tray_icon);
+    let platform = Platform::start(window, events.0.clone(), wake, tray_icon, RETURN_DELAY);
     commands.insert_resource(PlatformHandle(platform));
 }
 
