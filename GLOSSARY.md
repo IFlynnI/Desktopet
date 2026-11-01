@@ -43,6 +43,10 @@ _Avoid_: Bare "hide", user hide
 A hide caused by a fullscreen application being in the foreground.
 _Avoid_: Bare "hide", fullscreen hide
 
+**Return delay**:
+How long the Pet waits before coming back when an Auto-hide ends, so a quick Alt-Tab needn't show it.
+_Avoid_: Debounce, show delay
+
 **Hidden**:
 The Pet's state while a Manual hide or an Auto-hide applies. Never used for being absent from the taskbar
 or Alt-Tab, which is simply how the Overlay always is.

@@ -514,6 +514,14 @@ than SEN-01 allows.
 no broadcasts, and a restarted Explorer has forgotten every appbar. The
 [`TaskbarCreated`](https://learn.microsoft.com/en-us/windows/win32/shell/taskbar) broadcast is the cue to register again.
 
+**Tested against the real app, 2026-11-01.** Broken on purpose, the new tests failed for the right reasons. With no watcher,
+all three behaviour tests failed. With only the foreground hook left, by removing the shell's message, the first check and
+the 2 s re-check, a fullscreen window coming to the front still hid the Pet and closing it brought the Pet back in about
+a second. Growing a window in front did not, and neither did launching behind one. So each trigger does the job it's here for.
+
+During an Auto-hide the debug build used 0.26% of one core, against a limit of 0.5%, with GPU counter 0, over 12 s
+holding six re-checks.
+
 **Multiple monitors are out of scope,** because this machine can't test them. The rule compares against one rect. So a
 borderless fullscreen app on another monitor leaves the Pet shown, and an exclusive game there would hide it, because
 the shell state isn't tied to a monitor.

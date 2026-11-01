@@ -1,6 +1,6 @@
 # Proposal: architecture and code structure for roadmap item 2
 
-**Status:** slices 1 and 2 are built.
+**Status:** all three slices are built.
 
 This covers item 2: overlay, click-through, tray, hotkey, autostart and auto-hide. The ground plane and all pet
 physics moved to item 4. It's a concrete version of PRD §7.2, built so that other operating systems (Track 7) can
@@ -64,7 +64,7 @@ flowchart LR
         H["Reads the cursor, flips click-through"]
     end
     subgraph shell_thread["Shell thread: message loop, event-driven"]
-        S["Message window, tray, foreground window events"]
+        S["Message window, tray, fullscreen watching"]
     end
     E -- "HitTarget: where the Pet is drawn" --> H
     E -- "pause or resume polling" --> H
@@ -77,12 +77,12 @@ flowchart LR
   at all. The event-driven alternative, a global low-level mouse hook, would route every mouse event on the
   machine through this process. While the Pet is Hidden it waits on an event, so it doesn't poll at all.
 - **Shell thread:** waits in a message loop and uses no CPU until Windows has something to say, apart from
-  one fullscreen re-check every 2 s from slice 3. It keeps running while the engine is stopped, so it's what
-  wakes the engine up again. It owns the message window, an invisible Windows window that the hotkey and a second
-  launch send to, and the window `tray-icon` creates.
+  one fullscreen re-check every 2 s. It keeps running while the engine is stopped, so it's what wakes the engine up
+  again. It owns the message window, an invisible Windows window that the hotkey and a second launch send to, the window
+  `tray-icon` creates, and a hidden window for fullscreen watching.
 
-Event hooks and the 2 s re-check both only trigger the same check, so either can be removed later without
-touching the other or the rule itself.
+The shell's fullscreen message, the foreground hook and the 2 s re-check all only trigger the same check, so any of them
+can be removed later without touching the others or the rule itself.
 
 `HitTarget` is one value holding the hit mask and placement together. The spike published those separately,
 so the hit-test thread could briefly see a new frame with an old position.
@@ -109,14 +109,14 @@ crates/
       windows/                 all Win32 and unsafe code
         mod.rs
         dpi.rs                 physical-pixel awareness
-        monitor.rs             Home monitor and work area
+        monitor.rs             Home monitor and its work area
         window_styles.rs       Overlay styles, topmost, NonRudeHWND
         hit_thread.rs          8 ms cursor poll
         shell_thread.rs        message loop that hosts the message window and the tray
         tray.rs                tray-icon: Show/Hide, Launch on startup, Quit
         hotkey.rs              RegisterHotKey on the message window: Ctrl+Alt+P
         single_instance.rs     the `Local\DesktopPet` mutex, and asking the first Pet to show
-        foreground.rs          event hooks, debounce and 2 s re-check
+        foreground.rs          the shell's fullscreen message, a foreground hook, debounce and 2 s re-check
         autostart.rs           the Run registry value
   pet-app/
     src/
@@ -136,7 +136,7 @@ crates/
       e2e/                     #![cfg(windows)]
         main.rs                the test binary's root
         quiet.rs               tests that leave the mouse alone: `cargo e2e-quiet`
-        hands_off.rs           tests that need the real mouse: `cargo e2e` runs these and the quiet ones
+        hands_off.rs           tests that need the real mouse or fill the screen: `cargo e2e` runs these and the quiet ones
         harness.rs             launch and close the exe, restore the cursor, wait_until
         metrics.rs             CPU and GPU use, read from outside the app
         failing_app.rs         the app with a failure built in, a separate program for the Relaunch test
@@ -156,14 +156,17 @@ These are the only things `pet-app` can reach in `pet-platform`:
 | `prepare_process()` | OS setup that must run before Bevy starts, such as DPI and the presentation setting |
 | `home_work_area() -> Rect` | Where the Overlay goes |
 | `acquire_single_instance()` | A guard for the first Pet. A second launch asks the first to show and gets nothing |
-| `Platform::start(window, events, wake, tray_icon) -> Platform` | Attaches to the Overlay and starts both background threads |
+| `Platform::start(window, events, wake, tray_icon, auto_hide_return_delay) -> Platform` | Attaches to the Overlay and starts both background threads. A fullscreen app already in front is on the channel before this returns |
 | `Platform::publish_hit_target(HitTarget)` | Tells the hit-test thread where the Pet is drawn |
 | `Platform::set_hidden(bool)` | Pauses or resumes the hit-test thread. Only the engine changes `Window.visible` |
 | Dropping `Platform` | Stops and joins the shell thread, which removes the tray icon and frees the hotkey |
-| `ShellEvent` | Toggle, Show and Quit. Slice 3 adds "fullscreen changed" |
+| `ShellEvent` | Toggle, Show, Quit, and `FullscreenChanged(bool)`, sent only when the answer changes |
 
-`pet-core` stays neutral too. The fullscreen rule takes a plain snapshot, such as "client area" and "OS
-reports exclusive fullscreen", not Windows constants.
+`pet-core` stays neutral too. The fullscreen rule takes a plain `Snapshot` of the client area, the Home monitor and
+whether the OS reports exclusive fullscreen, not Windows constants.
+
+The Return delay is `RETURN_DELAY` in `pet-core/src/fullscreen.rs`. The app passes it to `Platform::start` from
+`engine/overlay.rs`, which is the one line settings replace in roadmap item 6.
 
 ### OS-specific code outside `pet-platform`
 
@@ -179,10 +182,10 @@ There are two deliberate exceptions:
 | Pure rules | `pet-core` unit tests | `cargo nextest run` | Hit mask, Presence, fullscreen rule |
 | Bevy logic | in-process tests in `pet-app` | `cargo nextest run` | Engine systems, with no window or GPU |
 | Real exe, quiet | `crates/pet-app/tests/e2e/quiet.rs` | `cargo e2e-quiet` | What Windows decides, with no mouse |
-| Real exe, hands-off | `crates/pet-app/tests/e2e/hands_off.rs` | `cargo e2e` runs these and the quiet ones | Click-through and focus |
+| Real exe, hands-off | `crates/pet-app/tests/e2e/hands_off.rs` | `cargo e2e` runs these and the quiet ones | Click-through, focus and Auto-hide |
 | Manual | [manual-checks.md](../manual-checks.md) | by hand | What can't be automated |
 
-The hands-off tests take over the mouse, so nothing else can use the machine during a run. The quiet tests can run
+The hands-off tests take over the mouse and fill the screen, so nothing else can use the machine during a run. The quiet tests can run
 while the owner is working. A forced GPU reset and a real Explorer restart run only when asked for, because they
 disturb the desktop. There's no remote yet, so all of this runs locally for now.
 
@@ -220,6 +223,26 @@ Details and sources are in [e2e-testing-and-fullscreen-events.md](../research/e2
   by leaving the icon in place on purpose: the check still passed. So tests only use them while the app runs, and
   whether the shell thread has stopped is checked from inside the process after `pet_app::run` returns.
 
+## Lessons from slice 3
+
+- The Pet keeps rendering behind a fullscreen game, even though nobody can see it: 26.8% of one core and 4% GPU on a debug
+  build. Only Auto-hide brings that to nothing.
+- The shell's own fullscreen message beat the hooks planned for it. It works on Windows 11 with no screen space claimed,
+  and it arrived for every real change, so `LOCATIONCHANGE`, its per-process scoping and three more hooks went. That also
+  removed the need to handle caret events at all.
+- That message reports the shell's view, not the foreground window. Once it said fullscreen for 10 s with an ordinary
+  window in front, and `QUNS_BUSY` agreed with it. So it only starts a check, and the rule decides from the window.
+- Scoping `LOCATIONCHANGE` to a process doesn't stop cursor events. They arrive whenever the cursor is over that process.
+- `WINEVENT_SKIPOWNPROCESS` hides your own windows from your own hooks, so a probe's test windows can't exercise them.
+  Only real apps can.
+- Windows timers can land one tick, about 16 ms, early. A test that asserts a minimum wait has to allow for it.
+- A re-check that restarts the wait would hold a Return delay longer than 2 s back for ever, so it leaves a running wait
+  alone.
+- Code that runs inside a Windows callback mustn't panic, even for "can't happen" reads: `home_monitor` first had an
+  `assert!`, which would have ended the app if a display change made the read fail.
+- Multiple monitors are out of scope, because this machine has one. The rule compares against the Home monitor only, so
+  a borderless fullscreen app on another monitor leaves the Pet shown, and an exclusive game there would hide it.
+
 ## Where the spike's code goes
 
 | Spike file | What it does | Where it goes |
@@ -239,4 +262,4 @@ Module paths under `windows/` are in `pet-platform/src/`.
 |---|---|
 | 1. Overlay | `pet-core`: `geometry`, `hit_mask`. `pet-platform`: `hit_target`, and `windows/`: `dpi`, `monitor`, `window_styles`, `hit_thread`. `pet-app`: `render_config`, `overlay`, `placeholder`. |
 | 2. Tray, hotkey and autostart | `pet-core`: `presence`, the relaunch limit. `pet-platform`: `events`, and `windows/`: `shell_thread`, `tray`, `hotkey`, `single_instance`, `autostart`. `pet-app`: `engine/presence`, `relaunch`. |
-| 3. Auto-hide | `pet-core`: `fullscreen`. `windows/foreground`. |
+| 3. Auto-hide | `pet-core`: `fullscreen`. `pet-platform`: `windows/foreground`. |
