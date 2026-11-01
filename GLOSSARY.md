@@ -47,3 +47,7 @@ _Avoid_: Bare "hide", fullscreen hide
 The Pet's state while a Manual hide or an Auto-hide applies. Never used for being absent from the taskbar
 or Alt-Tab, which is simply how the Overlay always is.
 _Avoid_: Invisible, minimised, paused
+
+**Relaunch**:
+The app starting itself again after a render failure. Unlike a launch by the owner, it keeps a Manual hide.
+_Avoid_: Restart, respawn

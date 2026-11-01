@@ -1,6 +1,6 @@
 # Proposal: architecture and code structure for roadmap item 2
 
-**Status:** slices 1 and 2 are built. Slice 2's decisions are in [slice-2-handoff.md](slice-2-handoff.md).
+**Status:** slices 1 and 2 are built.
 
 This covers item 2: overlay, click-through, tray, hotkey, autostart and auto-hide. The ground plane and all pet
 physics moved to item 4. It's a concrete version of PRD §7.2, built so that other operating systems (Track 7) can

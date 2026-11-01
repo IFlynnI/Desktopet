@@ -232,7 +232,7 @@ later on a self-hosted interactive runner. Whether the Overlay works on a hosted
 | Clicks reach the app underneath | **Real exe** | Harness opens its own plain window under the Pet, `SendInput` clicks a transparent pixel, that window records `WM_LBUTTONDOWN`. Clicking an opaque pixel must not reach it. | Unknown (P7) |
 | Doesn't steal focus | **Real exe** | Harness window is foreground, click an opaque Pet pixel, `GetForegroundWindow` is unchanged. Closes the gap at RESULTS.md:22. | Unknown |
 | Hidden from taskbar and Alt-Tab | **Real exe** | Assert `WS_EX_TOOLWINDOW` set, `WS_EX_APPWINDOW` clear, both at startup and after a while, because winit reset styles once (RESULTS.md:59). [Microsoft documents](https://learn.microsoft.com/en-us/windows/win32/winmsg/extended-window-styles) that style as hiding from both. | Likely, only reads styles |
-| Tray menu | **Real exe** plus **in-process** | Menu actions: in-process. Real click: `tray-icon`'s [`rect()`](https://github.com/tauri-apps/tray-icon/blob/dev/src/platform_impl/windows/mod.rs) gives the icon position via `Shell_NotifyIconGetRect`, then `SendInput`. Its result for an icon in overflow is **UNCONFIRMED**, so the test may need the icon pinned or the flyout opened through UIA. | Unknown |
+| Tray menu | **Real exe** plus **in-process** | Menu actions: in-process. Real click: `tray-icon`'s [`rect()`](https://github.com/tauri-apps/tray-icon/blob/dev/src/platform_impl/windows/mod.rs) gives the icon position via `Shell_NotifyIconGetRect`, then `SendInput`. Measured 2026-11-01: for a new icon behind the ^ arrow, that position is the arrow's, so a click there opens the flyout, not the icon's menu. Inference, not measured: the call fails once the icon is gone, which would let a test check that it exists. | Unknown |
 | Explorer restart (`TaskbarCreated`) | **Real exe** | The shell [broadcasts `TaskbarCreated`](https://learn.microsoft.com/en-us/windows/win32/shell/taskbar), and `tray-icon` [handles it](https://github.com/tauri-apps/tray-icon/blob/dev/src/platform_impl/windows/mod.rs). **The true check is an opt-in real restart**: kill and restart Explorer, then assert the icon's rect comes back. It's opt-in because it closes the owner's Explorer windows. Posting the message without a restart only shows the handler runs without crashing, because the icon was never removed, so that version can't catch a broken re-add. | No |
 | Hotkey | **Real exe** plus **in-process** | Toggle logic: in-process. Registered: a second `RegisterHotKey` for Ctrl+Alt+P [typically fails](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey), which needs no synthetic keys. Delivery: `SendInput`, but see below. | Unknown |
 | Auto-hide | **Real exe** plus **in-process** | Decision: pure tests. Real: harness opens a borderless monitor-sized window, gives it foreground by clicking it, asserts `IsWindowVisible` false, closes it, asserts true. Add a borderless window that resizes to fullscreen while already foreground, to cover the no-foreground-change case. | Unknown |
@@ -242,13 +242,11 @@ later on a self-hosted interactive runner. Whether the Overlay works on a hosted
 | Forced GPU reset | **Real exe**, opt-in | [`dxcap -forcetdr`](https://learn.microsoft.com/en-us/windows/uwp/gaming/handling-device-lost-scenarios) forces a TDR, and needs the [Graphics Tools optional feature](https://learn.microsoft.com/en-us/windows/uwp/gaming/use-the-directx-runtime-and-visual-studio-graphics-diagnostic-features). See below for the expected result. Inference: it resets the whole GPU, so other apps are affected. Whether it needs elevation is **UNCONFIRMED**. | No |
 | Multi-hour memory run | **Real exe**, opt-in | Release build without `e2e`. An external sampler reads the process's private working set on a timer, the measurement `win32.rs:155` makes today, but from outside. Needed for the slow creep at RESULTS.md:42. | No |
 
-**Hotkey caveat.** `RegisterHotKey`'s docs say Windows matches
+**Hotkey delivery, measured (P3, 2026-11-01).** `RegisterHotKey`'s docs say Windows matches
 ["when a key is pressed"](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registerhotkey),
-without covering injected keys. `SendInput`'s docs say injecting shell shortcuts works but
-["is not guaranteed to work for other types of applications"](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-sendinput).
-Whether it triggers a `RegisterHotKey` hotkey is **UNCONFIRMED** (P3). If it doesn't, post `WM_HOTKEY` directly to
-the hidden window [`global-hotkey`](https://github.com/tauri-apps/global-hotkey/blob/dev/src/platform_impl/windows/mod.rs)
-creates. That tests our handler but not Windows' delivery.
+without covering injected keys. On this machine, keys sent with `SendInput` did trigger it: Ctrl+Alt+F24 and
+Ctrl+Alt+P each produced exactly one `WM_HOTKEY`, so the hotkey test can use real delivery. Ctrl+Alt+P was free, and a
+second registration of a taken combination failed with "Hot key is already registered" (`0x80070581`).
 
 **GPU reset expectation.** Bevy's default handler
 [quits the app on any render error](https://github.com/bevyengine/bevy/blob/v0.20.1/crates/bevy_render/src/error_handler.rs)
@@ -530,7 +528,7 @@ short throwaway program, and P1 to P4 need only a normal desktop session.
 |---|---|---|
 | P1 | Hook `EVENT_OBJECT_LOCATIONCHANGE` globally and scoped to one process. Count events by `idObject` while moving the mouse and typing. | **Most important.** The volume and CPU argument rests on it. |
 | P2 | Start the spike, walk the UIA tree in raw and control views, look for the Overlay. Also list tray icons. | Whether UIA can see the Overlay at all. |
-| P3 | `RegisterHotKey` an unused key, send it with `SendInput`, watch for `WM_HOTKEY`. | Whether the hotkey test can use real delivery. |
+| P3 | **Done 2026-11-01:** injected keys trigger `RegisterHotKey`. See [Hotkey delivery](#check-by-check). | The hotkey test can use real delivery. |
 | P4 | With an elevated window such as Task Manager in front: do foreground events arrive, and do `GetClientRect` and `GetPropW` succeed? | Whether the elevated fallback is needed. |
 | P5 | Create a hidden window, send `ABM_NEW` without `ABM_SETPOS`. Check the work area is unchanged, then toggle F11 and watch for `ABN_FULLSCREENAPP`. | Could become the best trigger. |
 | P6 | Log the snapshot for: Chrome F11, fullscreen video, Edge, a borderless game, an exclusive game, a UWP app, a DPI-unaware borderless fullscreen app at the machine's scaling, a maximized titleless app with auto-hide taskbar, clicking the desktop, Alt-Tab in a game, and each `QUNS_*` value. | Settles most of the failure table. |
@@ -539,7 +537,6 @@ short throwaway program, and P1 to P4 need only a normal desktop session.
 **Other open items:**
 
 - `bevy_remote`'s memory and CPU cost: measure it with the spike's metrics, with and without the plugin.
-- `Shell_NotifyIconGetRect`'s result for an icon in the overflow area.
 - `xcap`'s `SRCCOPY` capture of the Overlay, only if you decide to use `xcap`.
 - Whether `dxcap -forcetdr` needs elevation.
 - Whether `insta` has any tolerance for image snapshots.
