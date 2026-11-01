@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 description = "Desktop Pet: the running program."
+default-run = "desktop-pet"
 
 [[bin]]
 name = "desktop-pet"

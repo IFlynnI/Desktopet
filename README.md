@@ -12,6 +12,9 @@ cargo run -p pet-app
 Press Ctrl+Alt+P or left-click the tray icon to hide or show the Pet. To stop it, right-click the tray icon and
 choose Quit.
 
+Ctrl+C in that terminal also shuts it down cleanly, but reports exit code 130, the usual code for being stopped that
+way. A release build has no terminal to press it in.
+
 ## Test it
 
 Fast tests have no window, GPU or mouse:
