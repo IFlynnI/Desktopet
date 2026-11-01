@@ -10,7 +10,9 @@ mod single_instance;
 mod tray;
 mod window_styles;
 
+use std::env;
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
@@ -30,6 +32,16 @@ pub fn prepare_process() {
     // The Visual swapchain is what makes the window truly transparent on NVIDIA (spike finding 1).
     // SAFETY: the standard library documents `set_var` as always safe on Windows.
     unsafe { std::env::set_var("WGPU_DX12_PRESENTATION_SYSTEM", "Visual") };
+}
+
+/// Where warnings and errors go. Roadmap item 6 can use the same folder for the save file.
+pub fn log_file_path() -> Option<PathBuf> {
+    let local_data = env::var_os("LOCALAPPDATA")?;
+    Some(
+        PathBuf::from(local_data)
+            .join("DesktopPet")
+            .join("desktop-pet.log"),
+    )
 }
 
 pub struct Platform {

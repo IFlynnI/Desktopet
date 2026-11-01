@@ -1,10 +1,11 @@
 //! Launches the real exe and acts on the real desktop through Windows, the way a person would.
 
-use std::io;
 use std::os::windows::io::AsRawHandle;
-use std::process::{Child, Command, ExitStatus};
-use std::thread;
+use std::path::PathBuf;
+use std::process::{self, Child, Command, ExitStatus};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{env, fs, io, thread};
 
 use pet_core::geometry::{Point, Rect};
 use windows::Win32::Foundation::{
@@ -14,7 +15,8 @@ use windows::Win32::System::Registry::{
     HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
 };
 use windows::Win32::System::Threading::{
-    OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject,
+    OpenMutexW, OpenProcess, PROCESS_SYNCHRONIZE, PROCESS_TERMINATE, SYNCHRONIZATION_SYNCHRONIZE,
+    TerminateProcess, WaitForSingleObject,
 };
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
@@ -26,8 +28,8 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::Shell::{NOTIFYICONIDENTIFIER, Shell_NotifyIconGetRect};
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GA_ROOT, GWL_EXSTYLE, GetAncestor, GetClassNameW, GetCursorPos,
-    GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId,
+    EnumWindows, FindWindowExW, GA_ROOT, GWL_EXSTYLE, GetAncestor, GetClassNameW, GetCursorPos,
+    GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, HWND_MESSAGE,
     IsWindowVisible, PostMessageW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     SetCursorPos, SystemParametersInfoW, WM_CLOSE, WM_COMMAND, WM_LBUTTONUP, WM_RBUTTONUP,
     WindowFromPoint,
@@ -171,23 +173,87 @@ impl Drop for StartupListGuard {
     }
 }
 
+/// A folder of its own for the app's files, so tests never touch the owner's log. It goes when the test ends. A test
+/// is its own process, so the process ID makes this unique.
+pub struct TestData(PathBuf);
+
+impl TestData {
+    fn new() -> Self {
+        let folder = env::temp_dir().join(format!("desktop-pet-e2e-{}", process::id()));
+        fs::create_dir_all(&folder).expect("make a test folder");
+        Self(folder)
+    }
+
+    pub fn log(&self) -> String {
+        let log = self.0.join("DesktopPet").join("desktop-pet.log");
+        fs::read_to_string(log).unwrap_or_default()
+    }
+
+    fn record_path(&self) -> PathBuf {
+        self.0.join("record.txt")
+    }
+
+    /// What `failing-app` has written, one line per entry.
+    pub fn record(&self) -> Vec<String> {
+        fs::read_to_string(self.record_path())
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+}
+
+impl Drop for TestData {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// When `failing-app` should fail.
+#[derive(Clone, Copy)]
+pub enum FailWhen {
+    Shown,
+    Hidden,
+}
+
 /// The running app. Dropping it closes the process, so a failed test leaves nothing behind.
 pub struct PetProcess {
     child: Child,
     overlay: HWND,
+    data: Arc<TestData>,
     _startup_list: StartupListGuard,
 }
 
 impl PetProcess {
     pub fn launch() -> Self {
+        Self::launch_from(Command::new(env!("CARGO_BIN_EXE_desktop-pet")))
+    }
+
+    /// `failing-app`, which is the real app with a failure built in.
+    pub fn launch_failing(when: FailWhen) -> Self {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_failing-app"));
+        let when = match when {
+            FailWhen::Shown => "shown",
+            FailWhen::Hidden => "hidden",
+        };
+        command.env("FAILING_APP_WHEN", when);
+        Self::launch_from(command)
+    }
+
+    fn launch_from(mut command: Command) -> Self {
         assert_no_pet_is_running();
-        let child = Command::new(env!("CARGO_BIN_EXE_desktop-pet"))
+        let startup_list = StartupListGuard::new();
+        let data = Arc::new(TestData::new());
+        let child = command
+            .env("LOCALAPPDATA", &data.0)
+            .env("FAILING_APP_RECORD", data.record_path())
             .spawn()
             .expect("start the app");
         let mut process = Self {
             child,
             overlay: HWND::default(),
-            _startup_list: StartupListGuard::new(),
+            data,
+            _startup_list: startup_list,
         };
         let pid = process.child.id();
         let appeared = wait_until(Duration::from_secs(30), || match visible_window_of(pid) {
@@ -228,6 +294,11 @@ impl PetProcess {
         &self.child
     }
 
+    /// The app's files, which outlive this value if a Relaunch is still using them.
+    pub fn data(&self) -> Arc<TestData> {
+        self.data.clone()
+    }
+
     /// The app's tray icon. It's added just after the Overlay appears, so this waits for it.
     pub fn tray(&self) -> Tray {
         let pid = self.child.id();
@@ -261,6 +332,59 @@ impl PetProcess {
         // SAFETY: takes plain values. A window that's gone makes this fail, and the wait below still ends.
         let _ = unsafe { PostMessageW(Some(self.overlay), WM_CLOSE, WPARAM(0), LPARAM(0)) };
         wait_or_kill(&mut self.child)
+    }
+}
+
+/// A copy of the app started by a Relaunch, not by the test. Dropping it closes that copy.
+pub struct Relaunched {
+    pid: u32,
+    process: HANDLE,
+}
+
+impl Relaunched {
+    /// Waits for the new copy to make its message window, which is what a second launch looks for too.
+    pub fn wait_for_it() -> Self {
+        let mut window = None;
+        let appeared = wait_until(PRESENCE_CHANGE, || {
+            // SAFETY: the class name is a static string and the rest are plain values.
+            let found = unsafe {
+                FindWindowExW(
+                    Some(HWND_MESSAGE),
+                    None,
+                    w!("DesktopPetMessageWindow"),
+                    None,
+                )
+            };
+            window = found.ok();
+            window.is_some()
+        });
+        assert!(appeared, "the app never relaunched");
+        let mut pid = 0;
+        // SAFETY: `pid` is a live local that Windows writes during the call.
+        unsafe { GetWindowThreadProcessId(window.expect("it appeared"), Some(&mut pid)) };
+        // SAFETY: takes plain values.
+        let process = unsafe { OpenProcess(PROCESS_SYNCHRONIZE | PROCESS_TERMINATE, false, pid) }
+            .expect("open the relaunched app");
+        Self { pid, process }
+    }
+
+    pub fn overlay(&self) -> Option<HWND> {
+        visible_window_of(self.pid)
+    }
+}
+
+impl Drop for Relaunched {
+    fn drop(&mut self) {
+        if let Some(overlay) = self.overlay() {
+            // SAFETY: takes plain values. A window that's gone makes this fail, and the wait below still ends.
+            let _ = unsafe { PostMessageW(Some(overlay), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+            // SAFETY: this value keeps the handle open for the whole call.
+            unsafe { WaitForSingleObject(self.process, CLOSE_TIMEOUT_MS) };
+        }
+        // SAFETY: this value owns the handle, and `drop` runs exactly once. Terminating an app that's gone does nothing.
+        let _ = unsafe { TerminateProcess(self.process, 1) };
+        // SAFETY: as above.
+        let _ = unsafe { CloseHandle(self.process) };
     }
 }
 

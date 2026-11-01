@@ -9,6 +9,12 @@ description = "Desktop Pet: the running program."
 name = "desktop-pet"
 path = "src/main.rs"
 
+# The app with a failure built in, so the Relaunch test needs no help from the real app.
+[[bin]]
+name = "failing-app"
+path = "tests/e2e/failing_app.rs"
+required-features = ["e2e"]
+
 # The e2e tests take over the real mouse, so they only build when asked for: run them with `cargo e2e`.
 [[test]]
 name = "e2e"
@@ -16,12 +22,18 @@ path = "tests/e2e/main.rs"
 required-features = ["e2e"]
 
 [features]
-e2e = []
+e2e = ["dep:windows"]
 
 [dependencies]
 pet-core.workspace = true
 pet-platform.workspace = true
 bevy.workspace = true
+
+# Only for `failing-app`. A program can't use dev-dependencies, so the `e2e` feature brings this in.
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, optional = true, features = [
+    "Win32_UI_WindowsAndMessaging",
+] }
 
 [target.'cfg(windows)'.dev-dependencies]
 windows = { workspace = true, features = [

@@ -1,7 +1,8 @@
 //! Applies Presence to the engine. Only this changes `Window.visible`, because Bevy keeps its own record of it.
 
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex};
 
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowCloseRequested};
@@ -14,6 +15,10 @@ use super::render_config;
 
 #[derive(Resource, Deref, DerefMut)]
 pub struct CurrentPresence(pub Presence);
+
+/// Shared with `pet_app::run`, which needs the Manual hide for a Relaunch after the world has gone.
+#[derive(Resource)]
+pub struct ManualHideAtExit(pub Arc<AtomicBool>);
 
 /// What the shell thread has sent. It's in a `Mutex` only because Bevy needs resources that threads can share, and a
 /// `Receiver` on its own can't be.
@@ -59,12 +64,16 @@ pub fn wake_for_exit(mut exits: MessageReader<AppExit>, proxy: Res<EventLoopProx
 /// thread still runs an update, which is how this gets undone.
 pub fn apply_presence(
     presence: Res<CurrentPresence>,
+    manual_hide_at_exit: Res<ManualHideAtExit>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut cameras: Query<&mut Camera>,
     mut settings: ResMut<WinitSettings>,
     platform: Option<Res<PlatformHandle>>,
 ) {
     let hidden = presence.is_hidden();
+    manual_hide_at_exit
+        .0
+        .store(presence.manual_hide(), Ordering::Relaxed);
     if let Ok(mut window) = windows.single_mut() {
         window.visible = !hidden;
     }
@@ -89,13 +98,16 @@ mod tests {
     struct Engine {
         app: App,
         shell: Sender<ShellEvent>,
+        manual_hide_at_exit: Arc<AtomicBool>,
     }
 
     impl Engine {
         fn starting_with(presence: Presence) -> Self {
             let (shell, receiver) = mpsc::channel();
+            let manual_hide_at_exit = Arc::new(AtomicBool::new(presence.manual_hide()));
             let mut app = App::new();
             app.insert_resource(CurrentPresence(presence))
+                .insert_resource(ManualHideAtExit(manual_hide_at_exit.clone()))
                 .insert_resource(ShellEvents(Mutex::new(receiver)))
                 .insert_resource(render_config::winit_settings(false))
                 .add_message::<AppExit>()
@@ -111,7 +123,11 @@ mod tests {
                 );
             app.world_mut().spawn((Window::default(), PrimaryWindow));
             app.world_mut().spawn(Camera::default());
-            Self { app, shell }
+            Self {
+                app,
+                shell,
+                manual_hide_at_exit,
+            }
         }
 
         fn is_visible(&mut self) -> bool {
@@ -215,6 +231,26 @@ mod tests {
 
         // Then
         assert_eq!(engine.app.should_exit(), Some(AppExit::Success));
+    }
+
+    #[test]
+    fn given_a_manual_hide_is_set_or_cleared_when_updating_then_the_shared_copy_follows() {
+        // Given
+        let mut engine = Engine::starting_with(Presence::default());
+        engine.shell.send(ShellEvent::Toggle).unwrap();
+
+        // When
+        engine.app.update();
+
+        // Then
+        assert!(engine.manual_hide_at_exit.load(Ordering::Relaxed));
+
+        // When
+        engine.shell.send(ShellEvent::Toggle).unwrap();
+        engine.app.update();
+
+        // Then
+        assert!(!engine.manual_hide_at_exit.load(Ordering::Relaxed));
     }
 
     #[test]

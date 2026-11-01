@@ -99,6 +99,7 @@ crates/
       geometry.rs              Point and Rect in physical pixels
       hit_mask.rs              is this cursor position on an opaque pixel of the Pet?
       presence.rs              Manual hide + Auto-hide => Hidden; hotkey toggle rule
+      relaunch.rs              at most 3 Relaunches in 10 minutes
       fullscreen.rs            does the foreground window fill the Home monitor?
   pet-platform/                the OS boundary; no Bevy
     src/
@@ -128,6 +129,8 @@ crates/
         render_config_windows.rs  DX12 and the Visual swapchain
         overlay.rs             the transparent window, starts invisible
         placeholder.rs         stationary procedural art, replaced by content packs in item 3
+        log_file.rs            warnings and errors go to a small file
+        render_failure.rs      a distinct exit code, so only a render failure relaunches
         presence.rs            applies Hidden: window, camera, update pause
     tests/
       e2e/                     #![cfg(windows)]
@@ -135,6 +138,8 @@ crates/
         quiet.rs               tests that leave the mouse alone: `cargo e2e-quiet`
         hands_off.rs           tests that need the real mouse: `cargo e2e` runs these and the quiet ones
         harness.rs             launch and close the exe, restore the cursor, wait_until
+        metrics.rs             CPU and GPU use, read from outside the app
+        failing_app.rs         the app with a failure built in, a separate program for the Relaunch test
         test_window.rs         a plain window that records the clicks it receives
         screen.rs              screen capture, comparison, locating the Pet
 .cargo/config.toml             the `cargo e2e` and `cargo e2e-quiet` aliases

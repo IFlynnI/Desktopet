@@ -13,4 +13,7 @@ compile_error!("Desktop Pet only supports Windows so far (PRD §3)");
 
 pub use events::{ShellEvent, TrayIconImage, Wake};
 pub use hit_target::HitTarget;
-pub use os::{Platform, SingleInstance, acquire_single_instance, home_work_area, prepare_process};
+pub use os::{
+    Platform, SingleInstance, acquire_single_instance, home_work_area, log_file_path,
+    prepare_process,
+};

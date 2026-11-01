@@ -4,6 +4,7 @@ use std::panic::{self, AssertUnwindSafe};
 use std::thread;
 use std::time::Duration;
 
+use pet_app::RENDER_FAILURE_EXIT;
 use windows::Win32::Foundation::{HANDLE, RECT};
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RegDeleteTreeW};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -13,8 +14,8 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::w;
 
 use crate::harness::{
-    HotkeyTaken, PetProcess, StartupListGuard, make_dpi_aware, press_hotkey, read_startup_entry,
-    work_area, write_startup_entry,
+    FailWhen, HotkeyTaken, PetProcess, Relaunched, StartupListGuard, make_dpi_aware, press_hotkey,
+    read_startup_entry, wait_until, work_area, write_startup_entry,
 };
 use crate::metrics::{GpuUse, cpu_percent_of_one_core};
 
@@ -128,11 +129,13 @@ fn given_another_app_owns_the_hotkey_when_launching_then_the_pet_still_runs() {
     // When
     let pet = PetProcess::launch();
 
-    // Then: it stays up and closes normally, with no pop-up in the way
+    // Then: it stays up and closes normally, with no pop-up in the way, and the log says why the hotkey is off
     thread::sleep(Duration::from_secs(1));
     assert!(pet.is_shown());
+    let data = pet.data();
     let status = pet.close().expect("wait for the app");
     assert!(status.success(), "{status}");
+    assert!(data.log().contains("Ctrl+Alt+P"), "log: {}", data.log());
 }
 
 #[test]
@@ -292,4 +295,51 @@ fn given_a_test_changed_the_startup_list_when_it_ends_then_the_entry_goes_back_a
     let _ = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key) };
     assert!(outcome.is_err(), "the test should have failed");
     assert_eq!(after, None, "the entry should have gone back");
+}
+
+#[test]
+fn given_an_app_that_keeps_failing_when_it_relaunches_then_it_stops_after_three_and_says_why() {
+    // Given / When: the first run plus 3 Relaunches, each failing soon after it appears
+    let pet = PetProcess::launch_failing(FailWhen::Shown);
+    let data = pet.data();
+
+    // Then
+    assert!(
+        wait_until(Duration::from_secs(30), || data
+            .log()
+            .contains("stays closed")),
+        "log: {}",
+        data.log()
+    );
+    drop(pet);
+    let record = data.record();
+    let count = |wanted: &str| record.iter().filter(|line| *line == wanted).count();
+    assert_eq!(count("started"), 4, "{record:?}");
+    assert_eq!(
+        count("stopped"),
+        4,
+        "the shell thread had stopped each time: {record:?}"
+    );
+}
+
+#[test]
+fn given_a_manual_hide_when_the_app_relaunches_then_it_stays_hidden_until_the_hotkey_shows_it() {
+    // Given
+    let first = PetProcess::launch_failing(FailWhen::Hidden);
+    let _data = first.data();
+
+    // When: this copy fails as soon as it's Hidden
+    press_hotkey();
+    let status = first.wait_for_exit().expect("wait for the app");
+    assert_eq!(status.code(), Some(RENDER_FAILURE_EXIT.into()));
+    let relaunched = Relaunched::wait_for_it();
+
+    // Then
+    thread::sleep(Duration::from_secs(1));
+    assert!(relaunched.overlay().is_none(), "it starts Hidden");
+    press_hotkey();
+    assert!(
+        wait_until(Duration::from_secs(5), || relaunched.overlay().is_some()),
+        "the hotkey shows it"
+    );
 }

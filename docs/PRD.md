@@ -422,6 +422,12 @@ fights at your side, and eventually talks with you — while never getting in yo
 | CPU budget gated on the reference machine (2026-11-01) | Only that machine has been measured; the figure is a share of its 32 threads. |
 | Auto-hide reads foreground window geometry (2026-11-01) | WIN-07 can't work without it. Titles and application names stay off limits. |
 | OS boundary is a crate with one folder per OS (2026-11-01) | Keeps macOS/Linux additive. See [ADR-0001](adr/0001-os-boundary-crate.md). |
+| Hotkey through `RegisterHotKey` on a message window, not the `global-hotkey` crate (2026-11-01) | That crate polls `GetAsyncKeyState` after each press. A window also keeps a press that arrives during the tray menu. |
+| Hidden stops everything: window, camera, updates and the hit-test poll (2026-11-01) | "Zero impact" (§6.2) should mean it. The world freezes, so the Pet reappears where it was. |
+| One Pet per Windows session, using a `Local\DesktopPet` mutex (2026-11-01) | A second launch shows the first Pet and exits. |
+| Autostart is one `Run` value, and `StartupApproved` is never touched (2026-11-01) | If the owner turns the app off in Windows Settings, that wins. |
+| Relaunch after a render failure, at most 3 times in 10 minutes (2026-11-01) | Recovers from a GPU reset, without looping for ever on a machine that can't render. Keeps a Manual hide. |
+| Warnings and errors go to `%LOCALAPPDATA%\DesktopPet\desktop-pet.log` (2026-11-01) | The release build has no console, so this is the only record of a failure. |
 
 ## 13. References
 
