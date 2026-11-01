@@ -238,6 +238,8 @@ Details and sources are in [e2e-testing-and-fullscreen-events.md](../research/e2
 - Windows timers can land one tick, about 16 ms, early. A test that asserts a minimum wait has to allow for it.
 - A re-check that restarts the wait would hold a Return delay longer than 2 s back for ever, so it leaves a running wait
   alone.
+- `Error removing system tray icon` on the console after an Explorer restart is harmless. `tray-icon` removes the old icon
+  before adding it to the new Explorer, and the new one never had it. A normal exit prints nothing.
 - Code that runs inside a Windows callback mustn't panic, even for "can't happen" reads: `home_monitor` first had an
   `assert!`, which would have ended the app if a display change made the read fail.
 - Multiple monitors are out of scope, because this machine has one. The rule compares against the Home monitor only, so

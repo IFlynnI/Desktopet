@@ -466,7 +466,7 @@ Constants are in `UI::WindowsAndMessaging`: `EVENT_SYSTEM_FOREGROUND` (3),
 | Foreground event arrives before the final size | The window is activated, then resized | Debounce. |
 | Slow hook hurts the system | [Documented](https://learn.microsoft.com/en-us/windows/win32/winauto/out-of-context-hook-functions) | Hook only the foreground event, keep the callback trivial. |
 | Pet appears during Alt-Tab out of a game | Measured: the switcher takes the foreground, an exclusive game minimizes, and the shell reports the exit | Accepted by the owner: the game really has left. The return delay is one value, so it can grow. |
-| Maximized app with no title bar and an auto-hidden taskbar | Client area may cover the monitor | May hide wrongly. The shell has the same input, so it may agree. **UNCONFIRMED** (P6). |
+| Maximized app with no title bar and an auto-hidden taskbar | Client area may cover the monitor | Checked by hand on 2026-11-01 with a maximized browser, Alt-Tab and Start: the Pet stayed shown through all three. |
 | DPI-unaware fullscreen app under display scaling | Client rect may be reported in scaled units | Measured: not a problem. A per-monitor-aware reader gets physical pixels. |
 | Elevated foreground window | Geometry calls may fail | Measured: they don't fail on Task Manager, so there's no fallback. |
 | Lock screen | Its own fullscreen window | Measured: it counts as fullscreen, so the Pet is Hidden while locked, and the foreground event on unlock brings it back. |
@@ -606,7 +606,7 @@ strong evidence, not proof.
 | P3 | **Done 2026-11-01:** injected keys trigger `RegisterHotKey`. See [Hotkey delivery](#check-by-check). | The hotkey test can use real delivery. |
 | P4 | With an elevated window such as Task Manager in front: do foreground events arrive, and do `GetClientRect` and `GetPropW` succeed? | **Done 2026-11-01.** All yes, so no elevated fallback is needed. |
 | P5 | Create a hidden window, send `ABM_NEW` without `ABM_SETPOS`. Check the work area is unchanged, then toggle F11 and watch for `ABN_FULLSCREENAPP`. | **Done 2026-11-01.** It works, as a trigger only. |
-| P6 | Log the snapshot for: Chrome F11, fullscreen video, Edge, a borderless game, an exclusive game, a UWP app, a DPI-unaware borderless fullscreen app at the machine's scaling, a maximized titleless app with auto-hide taskbar, clicking the desktop, Alt-Tab in a game, and each `QUNS_*` value. | **Mostly done 2026-11-01.** Not run: Edge, a maximized titleless app with an auto-hide taskbar, a game that changes the display mode. `QUIET_TIME` and `PRESENTATION_MODE` never appeared. |
+| P6 | Log the snapshot for: Chrome F11, fullscreen video, Edge, a borderless game, an exclusive game, a UWP app, a DPI-unaware borderless fullscreen app at the machine's scaling, a maximized titleless app with auto-hide taskbar, clicking the desktop, Alt-Tab in a game, and each `QUNS_*` value. | **Mostly done 2026-11-01.** Not run: Edge, a game that changes the display mode. The auto-hide taskbar case became a manual check, which passed. `QUIET_TIME` and `PRESENTATION_MODE` never appeared. |
 | P7 | A workflow on `windows-latest` that starts the Overlay, captures it and clicks through it. | Open. Whether real-exe tests can run on hosted CI. |
 
 **Other open items:**
