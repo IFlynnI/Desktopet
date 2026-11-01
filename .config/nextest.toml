@@ -1,0 +1,14 @@
+# The e2e tests drive the real cursor and screen, so they run one at a time. Run them with `cargo e2e`.
+[profile.default]
+default-filter = "not binary(e2e)"
+
+[test-groups]
+desktop = { max-threads = 1 }
+
+[profile.e2e]
+default-filter = "binary(e2e)"
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+[[profile.e2e.overrides]]
+filter = "binary(e2e)"
+test-group = "desktop"

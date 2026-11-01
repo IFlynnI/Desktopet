@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+exclude = ["spikes"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+pet-core = { path = "crates/pet-core" }
+pet-platform = { path = "crates/pet-platform" }
+# Pinned exactly: Bevy ships breaking releases, so upgrades are deliberate (PRD §7.1).
+bevy = { version = "=0.20.1", default-features = false, features = [
+    "default_app",
+    "std",
+    "bevy_winit",
+    "multi_threaded",
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_camera",
+    "bevy_image",
+    "bevy_window",
+    "bevy_sprite",
+    "bevy_sprite_render",
+    "png",
+] }
+raw-window-handle = "0.6"
+windows = "0.62"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
