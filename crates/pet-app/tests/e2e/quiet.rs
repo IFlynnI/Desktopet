@@ -229,3 +229,41 @@ fn given_a_hidden_pet_when_choosing_quit_then_it_still_exits() {
     let status = pet.wait_for_exit().expect("wait for the app");
     assert!(status.success(), "{status}");
 }
+
+#[test]
+fn given_a_hidden_pet_when_launching_again_then_the_first_shows_and_the_second_exits() {
+    // Given
+    let pet = PetProcess::launch();
+    press_hotkey();
+    assert!(pet.wait_until_hidden());
+
+    // When
+    let status = pet.launch_again().expect("run the second launch");
+
+    // Then
+    assert!(status.success(), "{status}");
+    assert!(pet.wait_until_shown());
+}
+
+#[test]
+fn given_a_shown_pet_when_launching_again_then_it_stays_shown_and_the_second_exits() {
+    // Given
+    let pet = PetProcess::launch();
+
+    // When
+    let status = pet.launch_again().expect("run the second launch");
+
+    // Then
+    assert!(status.success(), "{status}");
+    assert!(pet.is_shown());
+}
+
+#[test]
+#[should_panic(expected = "quit the running Pet first")]
+fn given_a_pet_is_running_when_the_harness_launches_one_then_it_stops_with_a_clear_reason() {
+    // Given
+    let _pet = PetProcess::launch();
+
+    // When / Then
+    PetProcess::launch();
+}

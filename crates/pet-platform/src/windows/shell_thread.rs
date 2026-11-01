@@ -11,7 +11,7 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EndMenu, GetMessageW,
     HWND_MESSAGE, MSG, PostMessageW, PostQuitMessage, RegisterClassW, WINDOW_EX_STYLE,
-    WINDOW_STYLE, WM_CLOSE, WM_HOTKEY, WNDCLASSW,
+    WINDOW_STYLE, WM_APP, WM_CLOSE, WM_HOTKEY, WNDCLASSW,
 };
 use windows::core::{PCWSTR, w};
 
@@ -19,7 +19,11 @@ use super::hotkey::Hotkey;
 use super::tray;
 use crate::{ShellEvent, TrayIconImage, Wake};
 
-const CLASS: PCWSTR = w!("DesktopPetMessageWindow");
+/// How a second launch finds the message window.
+pub const CLASS: PCWSTR = w!("DesktopPetMessageWindow");
+
+/// What a second launch sends it.
+pub const PLEASE_SHOW: u32 = WM_APP + 1;
 
 /// Sends an event, then wakes the engine so it reads it.
 struct Notifier {
@@ -56,6 +60,7 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     match message {
         WM_HOTKEY => notify(ShellEvent::Toggle),
+        PLEASE_SHOW => notify(ShellEvent::Show),
         WM_CLOSE => {
             // An open tray menu runs its own message loop, and the thread would never get out of it. This does nothing
             // when no menu is open, and the error that reports that doesn't matter.

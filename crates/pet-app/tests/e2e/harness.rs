@@ -7,8 +7,12 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use pet_core::geometry::{Point, Rect};
-use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, POINT, RECT, WAIT_OBJECT_0, WPARAM};
-use windows::Win32::System::Threading::WaitForSingleObject;
+use windows::Win32::Foundation::{
+    CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT, WAIT_OBJECT_0, WPARAM,
+};
+use windows::Win32::System::Threading::{
+    OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject,
+};
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
@@ -25,7 +29,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetCursorPos, SystemParametersInfoW, WM_CLOSE, WM_COMMAND, WM_LBUTTONUP, WM_RBUTTONUP,
     WindowFromPoint,
 };
-use windows::core::BOOL;
+use windows::core::{BOOL, w};
 
 /// Long enough for the 8 ms hit-test poll to react to a cursor move.
 const SETTLE: Duration = Duration::from_millis(60);
@@ -86,6 +90,7 @@ pub struct PetProcess {
 
 impl PetProcess {
     pub fn launch() -> Self {
+        assert_no_pet_is_running();
         let child = Command::new(env!("CARGO_BIN_EXE_desktop-pet"))
             .spawn()
             .expect("start the app");
@@ -148,7 +153,12 @@ impl PetProcess {
 
     /// Waits for the app to exit by itself, and kills it if it doesn't.
     pub fn wait_for_exit(mut self) -> io::Result<ExitStatus> {
-        self.wait_or_kill()
+        wait_or_kill(&mut self.child)
+    }
+
+    /// Starts the app again while this one runs, and waits for that second copy to exit.
+    pub fn launch_again(&self) -> io::Result<ExitStatus> {
+        wait_or_kill(&mut Command::new(env!("CARGO_BIN_EXE_desktop-pet")).spawn()?)
     }
 
     pub fn close(mut self) -> io::Result<ExitStatus> {
@@ -159,16 +169,27 @@ impl PetProcess {
     fn ask_to_close(&mut self) -> io::Result<ExitStatus> {
         // SAFETY: takes plain values. A window that's gone makes this fail, and the wait below still ends.
         let _ = unsafe { PostMessageW(Some(self.overlay), WM_CLOSE, WPARAM(0), LPARAM(0)) };
-        self.wait_or_kill()
+        wait_or_kill(&mut self.child)
     }
+}
 
-    fn wait_or_kill(&mut self) -> io::Result<ExitStatus> {
-        let process = HANDLE(self.child.as_raw_handle());
-        // SAFETY: `self.child` owns this handle and outlives the call.
-        if unsafe { WaitForSingleObject(process, CLOSE_TIMEOUT_MS) } != WAIT_OBJECT_0 {
-            self.child.kill()?;
-        }
-        self.child.wait()
+fn wait_or_kill(child: &mut Child) -> io::Result<ExitStatus> {
+    let process = HANDLE(child.as_raw_handle());
+    // SAFETY: `child` owns this handle and outlives the call.
+    if unsafe { WaitForSingleObject(process, CLOSE_TIMEOUT_MS) } != WAIT_OBJECT_0 {
+        child.kill()?;
+    }
+    child.wait()
+}
+
+/// The owner's own Pet would turn every launch here into a second launch, which exits, so stop with a clear reason.
+fn assert_no_pet_is_running() {
+    // SAFETY: the name is a static string and the rest are plain values.
+    let opened = unsafe { OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, false, w!("Local\\DesktopPet")) };
+    if let Ok(mutex) = opened {
+        // SAFETY: this handle came from the call above and nothing else uses it.
+        let _ = unsafe { CloseHandle(mutex) };
+        panic!("quit the running Pet first");
     }
 }
 

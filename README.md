@@ -20,7 +20,8 @@ Fast tests have no window, GPU or mouse:
 cargo nextest run
 ```
 
-Quiet tests run the real app but leave your mouse alone, so you can keep working:
+Only one Pet can run at a time, so quit yours before running the next two. Quiet tests run the real app but leave
+your mouse alone, so you can keep working:
 
 ```bash
 cargo e2e-quiet

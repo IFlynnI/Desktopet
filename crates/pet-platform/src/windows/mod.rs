@@ -5,6 +5,7 @@ mod hit_thread;
 mod hotkey;
 mod monitor;
 mod shell_thread;
+mod single_instance;
 mod tray;
 mod window_styles;
 
@@ -20,6 +21,7 @@ use hit_thread::HitTestPause;
 use shell_thread::ShellThread;
 
 pub use monitor::home_work_area;
+pub use single_instance::{SingleInstance, acquire_single_instance};
 
 /// OS setup that must run before Bevy starts. Call it first in `main`.
 pub fn prepare_process() {

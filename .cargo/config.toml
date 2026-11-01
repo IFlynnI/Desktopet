@@ -1,4 +1,5 @@
 [alias]
 # Tests against the real exe. `e2e` takes over the mouse, so keep your hands off it. `e2e-quiet` leaves it alone.
-e2e = "nextest run --profile e2e -p pet-app --features e2e --no-fail-fast"
-e2e-quiet = "nextest run --profile e2e-quiet -p pet-app --features e2e --no-fail-fast"
+# Both stop at the first failure, so a running Pet or a moved mouse ends the run straight away.
+e2e = "nextest run --profile e2e -p pet-app --features e2e"
+e2e-quiet = "nextest run --profile e2e-quiet -p pet-app --features e2e"
