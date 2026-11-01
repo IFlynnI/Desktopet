@@ -98,7 +98,7 @@ interfaces](https://doc.rust-lang.org/nomicon/ffi.html), which recommends this s
 
 1. **`pet-core` has no unsafe code at all, enforced by the compiler.** `#![forbid(unsafe_code)]` at the top
    of the crate makes any `unsafe` a build error.
-2. **Unsafe lives only in `pet-app/src/platform/`.** Bevy adapter code calls the safe wrappers.
+2. **Unsafe lives only in `pet-platform/src/windows/`.** Bevy adapter code calls the safe wrappers.
 3. **One operation per `unsafe` block.** Keep the block as small as the call itself.
 4. **Every block has a `// SAFETY:` comment** saying why the promise holds. Clippy's
    [`undocumented_unsafe_blocks`](https://rust-lang.github.io/rust-clippy/master/index.html#undocumented_unsafe_blocks)

@@ -1,11 +1,14 @@
 //! Launches the real exe and acts on the real desktop through Windows, the way a person would.
 
-use std::process::{Child, Command};
+use std::io;
+use std::os::windows::io::AsRawHandle;
+use std::process::{Child, Command, ExitStatus};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use pet_core::geometry::{Point, Rect};
-use windows::Win32::Foundation::{HWND, LPARAM, POINT, RECT};
+use windows::Win32::Foundation::{HANDLE, HWND, LPARAM, POINT, RECT, WAIT_OBJECT_0, WPARAM};
+use windows::Win32::System::Threading::WaitForSingleObject;
 use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
@@ -15,8 +18,9 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GA_ROOT, GWL_EXSTYLE, GetAncestor, GetCursorPos, GetForegroundWindow,
-    GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, SPI_GETWORKAREA,
-    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursorPos, SystemParametersInfoW, WindowFromPoint,
+    GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsWindowVisible, PostMessageW,
+    SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursorPos, SystemParametersInfoW,
+    WM_CLOSE, WindowFromPoint,
 };
 use windows::core::BOOL;
 
@@ -24,6 +28,8 @@ use windows::core::BOOL;
 const SETTLE: Duration = Duration::from_millis(60);
 
 const MIN_OVERLAY_WIDTH: i32 = 100;
+
+const CLOSE_TIMEOUT_MS: u32 = 5_000;
 
 pub fn wait_until(timeout: Duration, mut check: impl FnMut() -> bool) -> bool {
     let start = Instant::now();
@@ -67,7 +73,7 @@ pub fn foreground_window() -> HWND {
     unsafe { GetForegroundWindow() }
 }
 
-/// The running app. Dropping it kills the process, so a failed test leaves nothing behind.
+/// The running app. Dropping it closes the process, so a failed test leaves nothing behind.
 pub struct PetProcess {
     child: Child,
     overlay: HWND,
@@ -102,12 +108,27 @@ impl PetProcess {
         // SAFETY: takes plain values. A window that's gone returns 0, which fails the test's assertions.
         unsafe { GetWindowLongPtrW(self.overlay, GWL_EXSTYLE) as u32 }
     }
+
+    pub fn close(mut self) -> io::Result<ExitStatus> {
+        self.ask_to_close()
+    }
+
+    /// Asks the app to close the way Windows does, and only kills it if that fails. A killed app can't clean up.
+    fn ask_to_close(&mut self) -> io::Result<ExitStatus> {
+        // SAFETY: takes plain values. A window that's gone makes this fail, and the wait below still ends.
+        let _ = unsafe { PostMessageW(Some(self.overlay), WM_CLOSE, WPARAM(0), LPARAM(0)) };
+        let process = HANDLE(self.child.as_raw_handle());
+        // SAFETY: `self.child` owns this handle and outlives the call.
+        if unsafe { WaitForSingleObject(process, CLOSE_TIMEOUT_MS) } != WAIT_OBJECT_0 {
+            self.child.kill()?;
+        }
+        self.child.wait()
+    }
 }
 
 impl Drop for PetProcess {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = self.ask_to_close();
     }
 }
 

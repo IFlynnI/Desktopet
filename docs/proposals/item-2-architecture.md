@@ -1,10 +1,10 @@
 # Proposal: architecture and code structure for roadmap item 2
 
-**Status:** draft for review. Nothing here is built yet.
+**Status:** slice 1 is built, and slice 2 is being built from [slice-2-handoff.md](slice-2-handoff.md).
 
-This covers item 2 after the grilling answers so far: overlay, click-through, tray, hotkey, auto-hide and
-autostart. The ground plane and all pet physics moved to item 4. It's a concrete version of PRD §7.2, built
-so that other operating systems (Track 7) can be added later without moving existing code.
+This covers item 2: overlay, click-through, tray, hotkey, autostart and auto-hide. The ground plane and all pet
+physics moved to item 4. It's a concrete version of PRD §7.2, built so that other operating systems (Track 7) can
+be added later without moving existing code.
 
 ## The idea in one paragraph
 
@@ -19,7 +19,7 @@ Windows code sits behind it in `src/windows/`. `pet-app` is the running program 
 ```mermaid
 flowchart TD
     subgraph app["pet-app: the running program"]
-        main["main.rs"] --> engine["engine/: Bevy"]
+        main["main.rs"] --> lib["lib.rs: run()"] --> engine["engine/: Bevy"]
     end
     subgraph platform["pet-platform: talks to the OS"]
         api["lib.rs: same API on every OS"] --> win["windows/: all Win32 and unsafe code"]
@@ -64,7 +64,7 @@ flowchart LR
         H["Reads the cursor, flips click-through"]
     end
     subgraph shell_thread["Shell thread: message loop, event-driven"]
-        S["Tray, hotkey, foreground window events"]
+        S["Message window, tray, foreground window events"]
     end
     E -- "HitTarget: where the Pet is drawn" --> H
     E -- "pause or resume polling" --> H
@@ -75,10 +75,11 @@ flowchart LR
 - **Hit-test thread:** polls every 8 ms and flips `WS_EX_TRANSPARENT`, separate from the render cap
   (REN-05). This is the one poll we keep. A Pet can move under a resting cursor, and that produces no event
   at all. The event-driven alternative, a global low-level mouse hook, would route every mouse event on the
-  machine through this process. It stops while the Pet is Hidden.
+  machine through this process. While the Pet is Hidden it waits on an event, so it doesn't poll at all.
 - **Shell thread:** waits in a message loop and uses no CPU until Windows has something to say, apart from
-  one fullscreen re-check every 2 s. It keeps running while the engine is paused, so it's what wakes the
-  engine up again.
+  one fullscreen re-check every 2 s from slice 3. It keeps running while the engine is stopped, so it's what
+  wakes the engine up again. It owns the message window, an invisible Windows window that the hotkey and a second
+  launch send to, and the window `tray-icon` creates.
 
 Event hooks and the 2 s re-check both only trigger the same check, so either can be removed later without
 touching the other or the rule itself.
@@ -110,14 +111,16 @@ crates/
         monitor.rs             Home monitor and work area
         window_styles.rs       Overlay styles, topmost, NonRudeHWND
         hit_thread.rs          8 ms cursor poll
-        shell_thread.rs        message loop that hosts the next three modules
+        shell_thread.rs        message loop that hosts the message window and the tray
         tray.rs                tray-icon: Show/Hide, Launch on startup, Quit
-        hotkey.rs              global-hotkey: Ctrl+Alt+P
+        hotkey.rs              RegisterHotKey on the message window: Ctrl+Alt+P
+        single_instance.rs     the `Local\DesktopPet` mutex, and asking the first Pet to show
         foreground.rs          event hooks, debounce and 2 s re-check
         autostart.rs           the Run registry value
   pet-app/
     src/
-      main.rs                  startup order, wiring, relaunch after a render failure
+      main.rs                  calls `pet_app::run`, nothing else
+      lib.rs                   `run`: startup order, wiring, relaunch after a render failure
       relaunch.rs              start a fresh process, at most 3 times in 10 minutes
       engine/
         mod.rs                 EnginePlugin
@@ -128,11 +131,13 @@ crates/
         presence.rs            applies Hidden: window, camera, update pause
     tests/
       e2e/                     #![cfg(windows)]
-        main.rs                tests against the real exe
-        harness.rs             launch and kill the exe, restore the cursor, wait_until
+        main.rs                the test binary's root
+        quiet.rs               tests that leave the mouse alone: `cargo e2e-quiet`
+        hands_off.rs           tests that need the real mouse: `cargo e2e` runs these and the quiet ones
+        harness.rs             launch and close the exe, restore the cursor, wait_until
         test_window.rs         a plain window that records the clicks it receives
         screen.rs              screen capture, comparison, locating the Pet
-.cargo/config.toml             the `cargo e2e` alias
+.cargo/config.toml             the `cargo e2e` and `cargo e2e-quiet` aliases
 .config/nextest.toml           runs e2e tests one at a time
 spikes/bevy-overlay/           frozen reference, not in the workspace
 ```
@@ -145,10 +150,12 @@ These are the only things `pet-app` can reach in `pet-platform`:
 |---|---|
 | `prepare_process()` | OS setup that must run before Bevy starts, such as DPI and the presentation setting |
 | `home_work_area() -> Rect` | Where the Overlay goes |
-| `start(window, events) -> Platform` | Attaches to the Overlay and starts both background threads |
+| `acquire_single_instance()` | A guard for the first Pet. A second launch asks the first to show and gets nothing |
+| `Platform::start(window, events, wake, tray_icon) -> Platform` | Attaches to the Overlay and starts both background threads |
 | `Platform::publish_hit_target(HitTarget)` | Tells the hit-test thread where the Pet is drawn |
-| `Platform::set_hidden(bool)` | Hides or shows the Overlay and pauses or resumes polling |
-| `ShellEvent` | Toggle requested, Quit, fullscreen changed, startup setting changed |
+| `Platform::set_hidden(bool)` | Pauses or resumes the hit-test thread. Only the engine changes `Window.visible` |
+| Dropping `Platform` | Stops and joins the shell thread, which removes the tray icon and frees the hotkey |
+| `ShellEvent` | Toggle, Show and Quit. Slice 3 adds "fullscreen changed" |
 
 `pet-core` stays neutral too. The fullscreen rule takes a plain snapshot, such as "client area" and "OS
 reports exclusive fullscreen", not Windows constants.
@@ -166,12 +173,13 @@ There are two deliberate exceptions:
 |---|---|---|---|
 | Pure rules | `pet-core` unit tests | `cargo nextest run` | Hit mask, Presence, fullscreen rule |
 | Bevy logic | in-process tests in `pet-app` | `cargo nextest run` | Engine systems, with no window or GPU |
-| Real exe | `crates/pet-app/tests/e2e/` | `cargo e2e` | Everything Windows decides |
+| Real exe, quiet | `crates/pet-app/tests/e2e/quiet.rs` | `cargo e2e-quiet` | What Windows decides, with no mouse |
+| Real exe, hands-off | `crates/pet-app/tests/e2e/hands_off.rs` | `cargo e2e` runs these and the quiet ones | Click-through and focus |
 | Manual | [manual-checks.md](../manual-checks.md) | by hand | What can't be automated |
 
-The real-exe layer takes over the mouse, so nothing else can use the machine during a run. A forced GPU
-reset and a real Explorer restart run only when asked for, because they disturb the desktop. There's no
-remote yet, so all of this runs locally for now.
+The hands-off tests take over the mouse, so nothing else can use the machine during a run. The quiet tests can run
+while the owner is working. A forced GPU reset and a real Explorer restart run only when asked for, because they
+disturb the desktop. There's no remote yet, so all of this runs locally for now.
 
 The harness finds the Pet without any hooks in the app: it puts a window of one known colour behind the Pet,
 and every pixel that isn't that colour is the Pet. This also avoids the spike's blind spot over black
@@ -202,13 +210,12 @@ Details and sources are in [e2e-testing-and-fullscreen-events.md](../research/e2
 
 Code gets rewritten test-first as it moves. Nothing is copied wholesale.
 
-## How the four slices map to modules
+## How the three slices map to modules
 
 Module paths under `windows/` are in `pet-platform/src/`.
 
 | Slice | Adds |
 |---|---|
 | 1. Overlay | `pet-core`: `geometry`, `hit_mask`. `pet-platform`: `hit_target`, and `windows/`: `dpi`, `monitor`, `window_styles`, `hit_thread`. `pet-app`: `render_config`, `overlay`, `placeholder`. |
-| 2. Tray and hotkey | `pet-core`: `presence`. `pet-platform`: `events`, and `windows/`: `shell_thread`, `tray`, `hotkey`. `pet-app`: `engine/presence`, `relaunch`. |
+| 2. Tray, hotkey and autostart | `pet-core`: `presence`, the relaunch limit. `pet-platform`: `events`, and `windows/`: `shell_thread`, `tray`, `hotkey`, `single_instance`, `autostart`. `pet-app`: `engine/presence`, `relaunch`. |
 | 3. Auto-hide | `pet-core`: `fullscreen`. `windows/foreground`. |
-| 4. Autostart | `windows/autostart`. |

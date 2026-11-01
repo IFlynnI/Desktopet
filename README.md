@@ -26,8 +26,13 @@ Fast tests have no window, GPU or mouse:
 cargo nextest run
 ```
 
-Tests against the real app take over your mouse for about 40 seconds and open a magenta window, so keep your
-hands off it:
+Quiet tests run the real app but leave your mouse alone, so you can keep working:
+
+```bash
+cargo e2e-quiet
+```
+
+The full set also takes over your mouse and opens a magenta window, so keep your hands off it:
 
 ```bash
 cargo e2e
