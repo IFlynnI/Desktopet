@@ -123,10 +123,9 @@ impl Drop for MessageWindow {
 fn run(notifier: Notifier, tray_icon: TrayIconImage, started: Sender<isize>) {
     NOTIFIER.with(|cell| cell.set(notifier).ok());
     let window = MessageWindow::create();
-    // If the caller has gone, there's nobody to tell.
-    let _ = started.send(window.0.0 as isize);
-
     let hotkey = Hotkey::register(window.0);
+    // The Overlay shows after this, so by then the hotkey works. If the caller has gone, there's nobody to tell.
+    let _ = started.send(window.0.0 as isize);
     if hotkey.is_none() {
         log::warn!("Ctrl+Alt+P is taken by another app, so the hotkey is off");
     }

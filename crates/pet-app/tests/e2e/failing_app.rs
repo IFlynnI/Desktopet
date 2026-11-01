@@ -1,5 +1,6 @@
-//! The real app, plus a system that exits with the render-failure code. A Relaunch starts another copy of this program,
-//! so the limit can be tested with no help from the real app. This tests our path, not a real GPU failure.
+//! The real app, plus a system that reports a render error to the handler Bevy has installed. A Relaunch starts another
+//! copy of this program, so the limit can be tested with no help from the real app. This tests our path, not a real GPU
+//! failure.
 //!
 //! `FAILING_APP_WHEN` picks when it fails: `shown` soon after the Overlay appears, or `hidden` once it's been shown and
 //! then hidden. Each copy adds lines to the file named by `FAILING_APP_RECORD`.
@@ -10,8 +11,8 @@ use std::io::Write;
 use std::process;
 
 use bevy::prelude::*;
+use bevy::render::error_handler::{ErrorType, RenderError, RenderErrorHandler};
 use bevy::window::PrimaryWindow;
-use pet_app::RENDER_FAILURE_EXIT;
 use windows::Win32::UI::WindowsAndMessaging::{FindWindowExW, GetWindowThreadProcessId};
 use windows::core::w;
 
@@ -28,32 +29,40 @@ fn record(line: &str) {
     writeln!(file, "{line}").expect("write to the record file");
 }
 
-fn fail() -> AppExit {
-    AppExit::from_code(RENDER_FAILURE_EXIT)
+/// What Bevy does when a real render error arrives, with a made-up error.
+fn report_render_error(world: &mut World) {
+    let error = RenderError {
+        ty: ErrorType::DeviceLost,
+        description: "made up by failing-app".to_owned(),
+        source: None,
+    };
+    world.resource_scope(|world, handler: Mut<RenderErrorHandler>| {
+        (handler.0)(&error, world, &mut World::new());
+    });
 }
 
 fn fail_when_shown(
     time: Res<Time>,
     windows: Query<&Window, With<PrimaryWindow>>,
     mut seconds_shown: Local<f32>,
-    mut exit: MessageWriter<AppExit>,
+    mut commands: Commands,
 ) {
     if windows.single().is_ok_and(|window| window.visible) {
         *seconds_shown += time.delta_secs();
     }
     if *seconds_shown > SECONDS_SHOWN_BEFORE_FAILING {
-        exit.write(fail());
+        commands.queue(report_render_error);
     }
 }
 
 fn fail_when_hidden(
     windows: Query<&Window, With<PrimaryWindow>>,
     mut was_shown: Local<bool>,
-    mut exit: MessageWriter<AppExit>,
+    mut commands: Commands,
 ) {
     let visible = windows.single().is_ok_and(|window| window.visible);
     if *was_shown && !visible {
-        exit.write(fail());
+        commands.queue(report_render_error);
     }
     *was_shown |= visible;
 }
