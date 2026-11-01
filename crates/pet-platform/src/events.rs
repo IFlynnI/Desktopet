@@ -4,6 +4,8 @@ pub enum ShellEvent {
     Toggle,
     Show,
     Quit,
+    /// Whether a fullscreen application is now in the foreground. It's sent only when that changes.
+    FullscreenChanged(bool),
 }
 
 /// The tray icon as plain pixels, so this crate stays free of art.

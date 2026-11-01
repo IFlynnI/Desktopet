@@ -38,6 +38,7 @@ pub fn drain_shell_events(
             ShellEvent::Quit => {
                 exit.write(AppExit::Success);
             }
+            ShellEvent::FullscreenChanged(fullscreen) => presence.set_auto_hide(fullscreen),
         }
     }
 }
@@ -250,6 +251,86 @@ mod tests {
         engine.app.update();
 
         // Then
+        assert!(!engine.manual_hide_at_exit.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn given_a_shown_pet_when_a_fullscreen_app_arrives_then_the_engine_stops_completely() {
+        // Given
+        let mut engine = Engine::starting_with(Presence::default());
+        engine.app.update();
+
+        // When
+        engine
+            .shell
+            .send(ShellEvent::FullscreenChanged(true))
+            .unwrap();
+        engine.app.update();
+
+        // Then
+        assert!(!engine.is_visible());
+        assert!(!engine.camera_is_active());
+        assert_eq!(engine.wait(), Duration::MAX);
+    }
+
+    #[test]
+    fn given_an_auto_hide_when_the_fullscreen_app_leaves_then_the_engine_runs_again() {
+        // Given
+        let mut engine = Engine::starting_with(Presence::default());
+        engine
+            .shell
+            .send(ShellEvent::FullscreenChanged(true))
+            .unwrap();
+        engine.app.update();
+
+        // When
+        engine
+            .shell
+            .send(ShellEvent::FullscreenChanged(false))
+            .unwrap();
+        engine.app.update();
+
+        // Then
+        assert!(engine.is_visible());
+        assert!(engine.camera_is_active());
+        assert!(engine.wait() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn given_a_manual_hide_when_a_fullscreen_app_comes_and_goes_then_the_pet_stays_hidden() {
+        // Given
+        let mut engine = Engine::starting_with(Presence::with_manual_hide(true));
+
+        // When
+        engine
+            .shell
+            .send(ShellEvent::FullscreenChanged(true))
+            .unwrap();
+        engine
+            .shell
+            .send(ShellEvent::FullscreenChanged(false))
+            .unwrap();
+        engine.app.update();
+
+        // Then
+        assert!(!engine.is_visible());
+        assert!(engine.manual_hide_at_exit.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn given_an_auto_hide_when_the_app_exits_then_it_is_not_kept_as_a_manual_hide() {
+        // Given
+        let mut engine = Engine::starting_with(Presence::default());
+
+        // When
+        engine
+            .shell
+            .send(ShellEvent::FullscreenChanged(true))
+            .unwrap();
+        engine.app.update();
+
+        // Then: a Relaunch keeps a Manual hide only, and checks for a fullscreen app itself
+        assert!(!engine.is_visible());
         assert!(!engine.manual_hide_at_exit.load(Ordering::Relaxed));
     }
 
