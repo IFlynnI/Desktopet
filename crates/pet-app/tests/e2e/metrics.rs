@@ -14,6 +14,9 @@ use windows::Win32::System::Performance::{
 use windows::Win32::System::Threading::GetProcessTimes;
 use windows::core::{HSTRING, PCWSTR};
 
+/// A judgement, not a measurement: the most that still counts as stopped.
+pub const MAX_HIDDEN_CPU_PERCENT: f64 = 0.5;
+
 /// Windows counts CPU time in steps of 100 ns.
 const CPU_TICKS_PER_SECOND: f64 = 10_000_000.0;
 

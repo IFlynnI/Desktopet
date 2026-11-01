@@ -19,10 +19,7 @@ use crate::harness::{
     cursor_position, make_dpi_aware, press_hotkey, read_startup_entry, wait_until, work_area,
     write_startup_entry,
 };
-use crate::metrics::{GpuUse, cpu_percent_of_one_core};
-
-/// A judgement, not a measurement: the most that still counts as stopped.
-const MAX_HIDDEN_CPU_PERCENT: f64 = 0.5;
+use crate::metrics::{GpuUse, MAX_HIDDEN_CPU_PERCENT, cpu_percent_of_one_core};
 
 #[test]
 fn given_a_running_pet_when_asked_to_close_then_it_exits_on_its_own() {
@@ -89,6 +86,23 @@ fn given_the_app_started_when_inspecting_the_overlay_then_the_shell_is_told_it_i
 
     // Then
     assert!(!property.is_invalid() && !property.0.is_null());
+}
+
+#[test]
+fn given_the_app_listens_for_the_shell_when_it_runs_then_the_work_area_stays_the_same() {
+    // Given: the shell's fullscreen message needs an appbar, and a docked one takes screen space
+    make_dpi_aware();
+    let before = work_area();
+
+    // When
+    let pet = PetProcess::launch();
+    thread::sleep(Duration::from_secs(1));
+
+    // Then
+    assert_eq!(work_area(), before);
+    let status = pet.close().expect("wait for the app");
+    assert!(status.success(), "{status}");
+    assert_eq!(work_area(), before);
 }
 
 #[test]

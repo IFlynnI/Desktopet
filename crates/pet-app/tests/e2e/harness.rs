@@ -29,10 +29,10 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::Shell::{NOTIFYICONIDENTIFIER, Shell_NotifyIconGetRect};
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, FindWindowExW, GA_ROOT, GWL_EXSTYLE, GetAncestor, GetClassNameW, GetCursorPos,
-    GetForegroundWindow, GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, HWND_MESSAGE,
-    IsWindowVisible, PostMessageW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-    SetCursorPos, SystemParametersInfoW, WM_CLOSE, WM_COMMAND, WM_LBUTTONUP, WM_RBUTTONUP,
-    WindowFromPoint,
+    GetForegroundWindow, GetSystemMetrics, GetWindowLongPtrW, GetWindowRect,
+    GetWindowThreadProcessId, HWND_MESSAGE, IsWindowVisible, PostMessageW, SM_CXSCREEN,
+    SM_CYSCREEN, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursorPos,
+    SystemParametersInfoW, WM_CLOSE, WM_COMMAND, WM_LBUTTONUP, WM_RBUTTONUP, WindowFromPoint,
 };
 use windows::core::{BOOL, PCWSTR, w};
 
@@ -44,6 +44,11 @@ const MIN_OVERLAY_WIDTH: i32 = 100;
 const CLOSE_TIMEOUT_MS: u32 = 5_000;
 
 const PRESENCE_CHANGE: Duration = Duration::from_secs(5);
+
+const LAUNCH_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Longer than the app takes to go from its message window to the first frame.
+const STAYS_HIDDEN: Duration = Duration::from_secs(5);
 
 pub fn wait_until(timeout: Duration, mut check: impl FnMut() -> bool) -> bool {
     let start = Instant::now();
@@ -79,6 +84,19 @@ pub fn work_area() -> Rect {
         top: rect.top,
         right: rect.right,
         bottom: rect.bottom,
+    }
+}
+
+/// The whole primary monitor, which is the Home monitor until settings arrive. It's in physical pixels once
+/// `make_dpi_aware` has run.
+pub fn monitor_area() -> Rect {
+    // SAFETY: both take plain values.
+    let (right, bottom) = unsafe { (GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)) };
+    Rect {
+        left: 0,
+        top: 0,
+        right,
+        bottom,
     }
 }
 
@@ -240,7 +258,47 @@ impl PetProcess {
         Self::launch_from(command)
     }
 
-    fn launch_from(mut command: Command) -> Self {
+    /// For a launch that should stay Hidden: this returns once the app is running, and fails if the Overlay ever shows.
+    pub fn launch_kept_hidden() -> Self {
+        let process = Self::start_from(Command::new(env!("CARGO_BIN_EXE_desktop-pet")));
+        let pid = process.child.id();
+        let start = Instant::now();
+        let mut running_since = None;
+        while running_since.is_none_or(|since: Instant| since.elapsed() < STAYS_HIDDEN) {
+            assert!(start.elapsed() < LAUNCH_TIMEOUT, "the app never started");
+            assert!(visible_window_of(pid).is_none(), "the Overlay showed");
+            if running_since.is_none() && message_window().is_some() {
+                running_since = Some(Instant::now());
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        process
+    }
+
+    /// Waits for an Overlay that started Hidden to show.
+    pub fn wait_for_overlay(&mut self) -> bool {
+        self.find_overlay(PRESENCE_CHANGE)
+    }
+
+    fn find_overlay(&mut self, timeout: Duration) -> bool {
+        let pid = self.child.id();
+        wait_until(timeout, || match visible_window_of(pid) {
+            Some(hwnd) => {
+                self.overlay = hwnd;
+                true
+            }
+            None => false,
+        })
+    }
+
+    fn launch_from(command: Command) -> Self {
+        let mut process = Self::start_from(command);
+        let appeared = process.find_overlay(LAUNCH_TIMEOUT);
+        assert!(appeared, "the Overlay never became visible");
+        process
+    }
+
+    fn start_from(mut command: Command) -> Self {
         assert_no_pet_is_running();
         let startup_list = StartupListGuard::new();
         let data = Arc::new(TestData::new());
@@ -249,22 +307,12 @@ impl PetProcess {
             .env("FAILING_APP_RECORD", data.record_path())
             .spawn()
             .expect("start the app");
-        let mut process = Self {
+        Self {
             child,
             overlay: HWND::default(),
             data,
             _startup_list: startup_list,
-        };
-        let pid = process.child.id();
-        let appeared = wait_until(Duration::from_secs(30), || match visible_window_of(pid) {
-            Some(hwnd) => {
-                process.overlay = hwnd;
-                true
-            }
-            None => false,
-        });
-        assert!(appeared, "the Overlay never became visible");
-        process
+        }
     }
 
     pub fn overlay(&self) -> HWND {
@@ -346,16 +394,7 @@ impl Relaunched {
     pub fn wait_for_it() -> Self {
         let mut window = None;
         let appeared = wait_until(PRESENCE_CHANGE, || {
-            // SAFETY: the class name is a static string and the rest are plain values.
-            let found = unsafe {
-                FindWindowExW(
-                    Some(HWND_MESSAGE),
-                    None,
-                    w!("DesktopPetMessageWindow"),
-                    None,
-                )
-            };
-            window = found.ok();
+            window = message_window();
             window.is_some()
         });
         assert!(appeared, "the app never relaunched");
@@ -386,6 +425,20 @@ impl Drop for Relaunched {
         // SAFETY: as above.
         let _ = unsafe { CloseHandle(self.process) };
     }
+}
+
+/// The window a second launch looks for, which the app makes before it can show the Overlay.
+fn message_window() -> Option<HWND> {
+    // SAFETY: the class name is a static string and the rest are plain values.
+    let found = unsafe {
+        FindWindowExW(
+            Some(HWND_MESSAGE),
+            None,
+            w!("DesktopPetMessageWindow"),
+            None,
+        )
+    };
+    found.ok()
 }
 
 fn wait_or_kill(child: &mut Child) -> io::Result<ExitStatus> {

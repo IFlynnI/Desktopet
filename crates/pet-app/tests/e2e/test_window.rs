@@ -13,8 +13,8 @@ use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::{
     CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
     HWND_NOTOPMOST, IDC_ARROW, LoadCursorW, MSG, PostThreadMessageW, RegisterClassW,
-    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SetWindowPos, TranslateMessage, WM_LBUTTONDOWN,
-    WM_QUIT, WNDCLASSW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
+    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos, TranslateMessage,
+    WM_LBUTTONDOWN, WM_QUIT, WNDCLASSW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
 use windows::core::w;
 
@@ -83,6 +83,23 @@ impl TestWindow {
             )
         }
         .expect("make the test window a normal window");
+    }
+
+    /// Moves and resizes the window without touching which window is in front, as F11 in a browser does.
+    pub fn move_to(&self, area: Rect) {
+        // SAFETY: takes plain values, and the window's thread is pumping messages to answer the call.
+        unsafe {
+            SetWindowPos(
+                self.hwnd(),
+                None,
+                area.left,
+                area.top,
+                area.width(),
+                area.height(),
+                SWP_NOACTIVATE | SWP_NOZORDER,
+            )
+        }
+        .expect("resize the test window");
     }
 
     pub fn clicks(&self) -> usize {
