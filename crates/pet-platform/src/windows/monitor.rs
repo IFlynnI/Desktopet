@@ -31,8 +31,8 @@ pub fn home_work_area() -> Rect {
     }
 }
 
-/// The whole Home monitor, taskbar included.
-pub fn home_monitor() -> Rect {
+/// The whole Home monitor, taskbar included, or `None` if it can't be read, which a display change could cause.
+pub fn home_monitor() -> Option<Rect> {
     // SAFETY: takes plain values, and asking for the primary monitor always finds one.
     let monitor = unsafe { MonitorFromPoint(POINT::default(), MONITOR_DEFAULTTOPRIMARY) };
     let mut info = MONITORINFO {
@@ -41,17 +41,13 @@ pub fn home_monitor() -> Rect {
     };
     // SAFETY: `info` is a live local with its size set, as this call requires.
     let found = unsafe { GetMonitorInfoW(monitor, &mut info) };
-    assert!(
-        found.as_bool(),
-        "Windows always reports the primary monitor"
-    );
     let rect = info.rcMonitor;
-    Rect {
+    found.as_bool().then_some(Rect {
         left: rect.left,
         top: rect.top,
         right: rect.right,
         bottom: rect.bottom,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -64,7 +60,7 @@ mod tests {
         let work_area = home_work_area();
 
         // When
-        let monitor = home_monitor();
+        let monitor = home_monitor().expect("this desktop has a monitor");
 
         // Then
         assert!(monitor.covers(work_area));

@@ -329,11 +329,15 @@ fn read_foreground() -> Option<ForegroundWindow> {
 
 /// The plain facts the rule in `pet-core` needs, read fresh each time because a game can change the display mode.
 pub fn read_snapshot() -> Snapshot {
+    // This runs inside a Windows callback, where a panic would end the app, so a failed read only means "can't tell".
+    let Some(home_monitor) = home_monitor() else {
+        return Snapshot::default();
+    };
     // SAFETY: takes no arguments.
     let shell_state = unsafe { SHQueryUserNotificationState() };
     Snapshot {
         foreground: read_foreground(),
-        home_monitor: home_monitor(),
+        home_monitor,
         exclusive_fullscreen: shell_state == Ok(QUNS_RUNNING_D3D_FULL_SCREEN),
     }
 }
