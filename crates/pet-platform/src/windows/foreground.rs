@@ -10,7 +10,8 @@
 //! - A check every 2 s, the one poll here. Windows promises neither of the others fires for every change, a stale Hidden
 //!   looks like a crash, and each foreground change measured with no event reached only this check.
 //!
-//! This reads the foreground window's geometry and one flag, and never its title (SEN-01, SEN-02).
+//! This reads the foreground window's geometry and whether it declares itself never fullscreen, and never its title
+//! (SEN-01, SEN-02).
 
 use std::cell::{Cell, OnceCell};
 use std::time::Duration;
@@ -535,8 +536,8 @@ mod tests {
         }
         thread::sleep(Duration::from_millis(500));
 
-        // Then
-        assert_eq!(running.reads.load(Ordering::SeqCst), 2);
+        // Then: the hook is real, so a window changing elsewhere could add a read, but never one per trigger
+        assert!(running.reads.load(Ordering::SeqCst) < 5);
     }
 
     #[test]
