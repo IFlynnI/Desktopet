@@ -2,6 +2,7 @@
 
 mod autostart;
 mod dpi;
+mod foreground;
 mod hit_thread;
 mod hotkey;
 mod monitor;

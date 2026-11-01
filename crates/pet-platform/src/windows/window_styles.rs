@@ -5,7 +5,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GetWindowLongPtrW, SetPropW, SetWindowLongPtrW, WS_EX_APPWINDOW, WS_EX_LAYERED,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
 };
-use windows::core::w;
+use windows::core::{PCWSTR, w};
+
+/// The window property the shell reads to learn that a window is never fullscreen.
+pub const NOT_FULLSCREEN_PROPERTY: PCWSTR = w!("NonRudeHWND");
 
 /// Layered, a tool window (no taskbar or Alt-Tab) that never takes focus, and transparent to clicks unless
 /// the cursor is on the Pet.
@@ -38,7 +41,7 @@ pub fn declare_not_fullscreen(hwnd: HWND) {
     // Any non-null value counts, and Windows never dereferences it.
     let set = HANDLE(std::ptr::dangling_mut());
     // SAFETY: the name is a static string and the value is only a flag.
-    let _ = unsafe { SetPropW(hwnd, w!("NonRudeHWND"), Some(set)) };
+    let _ = unsafe { SetPropW(hwnd, NOT_FULLSCREEN_PROPERTY, Some(set)) };
 }
 
 #[cfg(test)]

@@ -15,6 +15,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{PCWSTR, w};
 
+use pet_core::fullscreen::RETURN_DELAY;
+
+use super::foreground::{self, Foreground};
 use super::hotkey::Hotkey;
 use super::tray;
 use crate::{ShellEvent, TrayIconImage, Wake};
@@ -124,7 +127,9 @@ fn run(notifier: Notifier, tray_icon: TrayIconImage, started: Sender<isize>) {
     NOTIFIER.with(|cell| cell.set(notifier).ok());
     let window = MessageWindow::create();
     let hotkey = Hotkey::register(window.0);
-    // The Overlay shows after this, so by then the hotkey works. If the caller has gone, there's nobody to tell.
+    let _foreground = Foreground::start(foreground::read_snapshot, notify, RETURN_DELAY);
+    // The Overlay shows after this, so by then the hotkey works, and a fullscreen app already in front has been reported.
+    // If the caller has gone, there's nobody to tell.
     let _ = started.send(window.0.0 as isize);
     if hotkey.is_none() {
         log::warn!("Ctrl+Alt+P is taken by another app, so the hotkey is off");
