@@ -9,8 +9,9 @@
 relative to the repo root, with `RESULTS.md` and `win32.rs` short for the copies in `spikes/bevy-overlay/`. **UNCONFIRMED** means I found no source that settles it, and "Inference" means
 my reasoning from a cited fact. Crate versions are from the crates.io API on the research date.
 
-**No local measurements.** The planned probes on this machine were blocked by the session's
-permission policy, so nothing here was measured. The probes are listed in [Unconfirmed items](#unconfirmed-items).
+**Local measurements.** The first research pass couldn't run probes on this machine. P1, P3, P4, P5 and most of P6
+have run since, on 2026-11-01. Their results are in [Measured on this machine](#measured-on-this-machine) and they
+replace anything older in this document that disagrees. P2 and P7 are still open: see [Unconfirmed items](#unconfirmed-items).
 
 ## Bottom line
 
@@ -19,8 +20,9 @@ permission policy, so nothing here was measured. The probes are listed in [Uncon
   reading app state, compiled into test builds only.
 - **Only three checks stay human:** unlocking the lock screen, sleep and resume on a normal desktop, and
   judging how the art looks.
-- **Fullscreen detection:** event hooks on the planned shell thread, re-checked by a slow 2 s timer. The test
-  is the shell's own rule: the foreground window's client area covers the monitor.
+- **Fullscreen detection:** the shell's `ABN_FULLSCREENAPP` message and a foreground hook on the shell thread,
+  re-checked by a slow 2 s timer. The test is the shell's own rule: the foreground window's client area covers the
+  Home monitor. See [Recommended design](#recommended-design), which was revised after the probes.
 
 ## Terms
 
@@ -342,10 +344,10 @@ Inference: a resize made from another thread of that process could be missed, so
 | Candidate | Verdict |
 |---|---|
 | `EVENT_SYSTEM_MOVESIZEEND` | Reports [the end of a move or resize](https://learn.microsoft.com/en-us/windows/win32/winauto/event-constants). [Winshell reports](https://github.com/dante-sparras/winshell/pull/675) it doesn't fire for Win+Up or snapping. Inference: `SetWindowPos`-driven fullscreen doesn't fire it either. Not a substitute. |
-| `EVENT_SYSTEM_MINIMIZESTART`, `MINIMIZEEND` | Keep. Whether restoring a minimized window always raises a foreground event is **UNCONFIRMED**: a [CodeProject question](https://www.codeproject.com/Questions/328990/answer), seen only as a search snippet because the page wouldn't load, says it doesn't. [PowerToys Always On Top](https://github.com/microsoft/PowerToys/blob/main/src/modules/alwaysontop/AlwaysOnTop/AlwaysOnTop.cpp) hooks both. |
-| `EVENT_OBJECT_DESTROY` | Keep, scoped. PowerToys comments that ["for some EVENT_OBJECT_DESTROY doesn't work"](https://github.com/microsoft/PowerToys/blob/main/src/modules/alwaysontop/AlwaysOnTop/AlwaysOnTop.cpp), so don't rely on it alone. |
-| `EVENT_SYSTEM_DESKTOPSWITCH` | Keep. Reports [the active desktop changing](https://learn.microsoft.com/en-us/windows/win32/winauto/event-constants), which lets us re-check after the secure desktop. |
-| `ABN_FULLSCREENAPP` | The shell's own decision as an event. An appbar gets it [when a fullscreen app starts or the last one closes](https://learn.microsoft.com/en-us/windows/win32/shell/application-desktop-toolbars), and only removed appbars stop receiving notifications. **Best candidate if it works**, but it needs a registered appbar, and whether `ABM_NEW` alone, without `ABM_SETPOS`, avoids reserving screen space and still gets the message is **UNCONFIRMED** (P5). So is its behaviour on the Windows 11 taskbar. |
+| `EVENT_SYSTEM_MINIMIZESTART`, `MINIMIZEEND` | Dropped after P6. Whether restoring a minimized window always raises a foreground event is **UNCONFIRMED**: a [CodeProject question](https://www.codeproject.com/Questions/328990/answer), seen only as a search snippet because the page wouldn't load, says it doesn't. [PowerToys Always On Top](https://github.com/microsoft/PowerToys/blob/main/src/modules/alwaysontop/AlwaysOnTop/AlwaysOnTop.cpp) hooks both. |
+| `EVENT_OBJECT_DESTROY` | Dropped after P6. PowerToys comments that ["for some EVENT_OBJECT_DESTROY doesn't work"](https://github.com/microsoft/PowerToys/blob/main/src/modules/alwaysontop/AlwaysOnTop/AlwaysOnTop.cpp), so don't rely on it alone. |
+| `EVENT_SYSTEM_DESKTOPSWITCH` | Dropped after P6: the foreground event fired with it. Reports [the active desktop changing](https://learn.microsoft.com/en-us/windows/win32/winauto/event-constants), which lets us re-check after the secure desktop. |
+| `ABN_FULLSCREENAPP` | The shell's own decision as an event. An appbar gets it [when a fullscreen app starts or the last one closes](https://learn.microsoft.com/en-us/windows/win32/shell/application-desktop-toolbars), and only removed appbars stop receiving notifications. It needs a registered appbar, and `ABM_NEW` alone, without `ABM_SETPOS`, was enough. **Used**, as a trigger only: see [the measurements](#measured-on-this-machine). |
 | `HSHELL_RUDEAPPACTIVATED` | [`RegisterShellHookWindow`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-registershellhookwindow) delivers it, but the function is marked "not intended for general use". Avoid. |
 | `SHQueryUserNotificationState` | Reports shell state, including [exclusive Direct3D](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/ne-shellapi-query_user_notification_state). Query only: ["there are no notifications sent when the user starts or stops a full-screen application"](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shqueryusernotificationstate). Useful inside the check, not as a trigger. |
 
@@ -459,80 +461,143 @@ Constants are in `UI::WindowsAndMessaging`: `EVENT_SYSTEM_FOREGROUND` (3),
 | Failure | Cause | Handling |
 |---|---|---|
 | False Auto-hide when clicking the desktop | The desktop covers the monitor and becomes foreground | Exclude [`GetShellWindow()`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getshellwindow) and the `Progman` and `WorkerW` classes. Those class names are undocumented, so test them (P6). A class name is not a title, so SEN-02 is fine. |
-| Pet stuck Hidden | Exit event missed, for example a fullscreen window hidden rather than destroyed | The safety-net timer. This is the worst failure, because the Pet silently disappears. |
-| Foreground is NULL | [Happens during activation changes](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getforegroundwindow) | Keep the previous state, wait for the next event. |
-| Foreground event arrives before the final size | The window is activated, then resized | Debounce, and install the scoped hook before reading geometry. |
-| Resize made by another process | A process-scoped hook may not see it | Safety-net timer. Whether events are attributed to the caller or the window's owner is **UNCONFIRMED**. |
-| Slow hook hurts the system | [Documented](https://learn.microsoft.com/en-us/windows/win32/winauto/out-of-context-hook-functions) | Scope the hook, keep the callback trivial. |
-| Pet flickers on Alt-Tab during a game | The switcher becomes foreground | Debounce. Actual behaviour **UNCONFIRMED**. |
+| Pet stuck Hidden | Exit event missed | The 2 s re-check. This is the worst failure, because the Pet silently disappears. Measured: a fullscreen window hidden rather than destroyed does report its exit. |
+| Foreground is NULL | [Happens during activation changes](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-getforegroundwindow). Measured: about 120 ms when a fullscreen window hides, and seconds around the lock screen. | Keep the previous state, wait for the next trigger. |
+| Foreground event arrives before the final size | The window is activated, then resized | Debounce. |
+| Slow hook hurts the system | [Documented](https://learn.microsoft.com/en-us/windows/win32/winauto/out-of-context-hook-functions) | Hook only the foreground event, keep the callback trivial. |
+| Pet appears during Alt-Tab out of a game | Measured: the switcher takes the foreground, an exclusive game minimizes, and the shell reports the exit | Accepted by the owner: the game really has left. The return delay is one value, so it can grow. |
 | Maximized app with no title bar and an auto-hidden taskbar | Client area may cover the monitor | May hide wrongly. The shell has the same input, so it may agree. **UNCONFIRMED** (P6). |
-| DPI-unaware fullscreen app under display scaling | Client rect may be reported in scaled units | **UNCONFIRMED** (P6). This machine is 3840×2160, so test it. |
-| Elevated foreground window | Geometry calls may fail | Fall back to `SHQueryUserNotificationState`. |
-| Lock screen | Hooks cover the current desktop only | Re-check on `EVENT_SYSTEM_DESKTOPSWITCH`. |
+| DPI-unaware fullscreen app under display scaling | Client rect may be reported in scaled units | Measured: not a problem. A per-monitor-aware reader gets physical pixels. |
+| Elevated foreground window | Geometry calls may fail | Measured: they don't fail on Task Manager, so there's no fallback. |
+| Lock screen | Its own fullscreen window | Measured: it counts as fullscreen, so the Pet is Hidden while locked, and the foreground event on unlock brings it back. |
+| Explorer restarts | The new shell has no appbars | Register again on `TaskbarCreated`. Until then the foreground hook and re-check still work. |
 
 ## Recommended design
 
-This fits the [proposal's](../proposals/item-2-architecture.md) modules: `platform/foreground.rs` on
-`shell_thread.rs`, with the decision in `pet-core/src/fullscreen.rs`.
+The owner chose this on 2026-11-01 from the [measurements](#measured-on-this-machine). It's smaller than the first
+version of this section, which had five hooks and swapped two of them on every foreground change. It fits the
+[proposal's](../proposals/item-2-architecture.md) modules: `windows/foreground.rs` on `shell_thread.rs`, with the
+decision in `pet-core/src/fullscreen.rs`.
 
-**On the shell thread, always on.** All use `WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS`, with process 0:
+**Three triggers, which all do the same thing:**
 
-1. `EVENT_SYSTEM_FOREGROUND`
-2. `EVENT_SYSTEM_MINIMIZESTART` to `EVENT_SYSTEM_MINIMIZEEND`
-3. `EVENT_SYSTEM_DESKTOPSWITCH`
+1. `ABN_FULLSCREENAPP`, from an appbar registered with `ABM_NEW` alone. This is what catches fullscreen with no
+   foreground change.
+2. `EVENT_SYSTEM_FOREGROUND`, with `WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS` and process 0. The shell's message
+   can say fullscreen before the fullscreen window is in front, and then has nothing more to say when it arrives.
+3. A 2 s timer. Two foreground changes in the probes reached only this. It also bounds the delay if a future Windows
+   stops sending the first one.
 
-**Scoped to the foreground window's process,** replaced on each foreground change:
+`EVENT_OBJECT_LOCATIONCHANGE`, `EVENT_OBJECT_DESTROY`, the minimize events and `EVENT_SYSTEM_DESKTOPSWITCH` are gone.
+In every real fullscreen change, the appbar or the foreground hook fired as well. Without `LOCATIONCHANGE` there are no
+caret events to drop, so nothing near typing ever reaches this process.
 
-4. `EVENT_OBJECT_LOCATIONCHANGE`, filtered to `hwnd == foreground && OBJID_WINDOW && CHILDID_SELF`
-5. `EVENT_OBJECT_DESTROY`, same filter
+**A trigger only restarts a timer.** Win32 has no one-shot timer, so the `WM_TIMER` handler must call
+[`KillTimer`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-killtimer). The wait is 100 ms before
+hiding. Coming back has its own value, also 100 ms for now, which settings replace in roadmap item 6.
 
-**The callback** only drops unwanted events and restarts a 100 ms debounce timer. It makes no other Win32 calls.
-Win32 has no one-shot timer, so the `WM_TIMER` handler must call
-[`KillTimer`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-killtimer). With a NULL `hwnd`,
-[`SetTimer`](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-settimer) only resets a timer if
-you pass back the ID it returned the first time. Passing anything else starts another timer.
-
-**When the timer fires:** replace the scoped hooks first, then read the window, so nothing is missed in between.
-Then build a plain snapshot and call a pure function in `pet-core`:
+**When the timer fires,** build a plain snapshot and call a pure function in `pet-core`:
 
 ```text
 fullscreen = shell_state is RUNNING_D3D_FULL_SCREEN
           or (foreground exists
-              and not desktop/shell window
-              and not minimized
+              and not the desktop
               and not marked NonRudeHWND
-              and client area covers rcMonitor)
+              and client area covers the Home monitor)
 ```
 
-Send a `ShellEvent` only when the answer changes, and let the engine wake and stop the 8 ms thread as the proposal
-plans. I've left `QUNS_BUSY` out because Chromium does and the reason isn't documented. Its wording also covers
-Presentation Settings. P6 can decide whether to add it.
+If there's no foreground window, or its client area can't be read, the answer stays as it was. `IsIconic` isn't needed,
+because a minimized window's client area is empty. Class names and process IDs aren't needed either, so this reads less
+than SEN-01 allows.
 
-**Is a slow safety-net poll needed? Yes, a slow one.** The docs don't say events get dropped, but they also don't
-promise every fullscreen change raises one of these events, and three gaps are real: shell state has
-[no notifications](https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-shqueryusernotificationstate),
-PowerToys [found `EVENT_OBJECT_DESTROY` unreliable](https://github.com/microsoft/PowerToys/blob/main/src/modules/alwaysontop/AlwaysOnTop/AlwaysOnTop.cpp),
-and a scoped hook may miss another process's resize. Failure is also lopsided, because a Pet stuck Hidden looks like
-a crash. So run the same check every 2 s from a thread timer on the same loop. The 2 s value is a judgement call,
-not a sourced figure. It's a quarter of the wake-ups of a 500 ms poll and costs one `SetTimer` call.
+**One hidden top-level window owns all of it.** A message-only window hears the shell's message but, as a Windows rule,
+no broadcasts, and a restarted Explorer has forgotten every appbar. The
+[`TaskbarCreated`](https://learn.microsoft.com/en-us/windows/win32/shell/taskbar) broadcast is the cue to register again.
 
-**If P5 succeeds,** add `ABN_FULLSCREENAPP` as a further trigger, since it carries the shell's own decision. The
-hooks and timer stay until it has proved itself.
+**Multiple monitors are out of scope,** because this machine can't test them. The rule compares against one rect. So a
+borderless fullscreen app on another monitor leaves the Pet shown, and an exclusive game there would hide it, because
+the shell state isn't tied to a monitor.
+
+# Measured on this machine
+
+**Setup, 2026-11-01:** Windows 11 build 26200, one monitor at 3840×2160 and 150% scaling, work area 3840×2088. Throwaway
+programs outside the repo, with the owner working through each app by hand. They read geometry, class name and process
+ID only, dropped caret events first, and never counted them. All the Pet figures are for a debug build.
+
+**Does the Pet keep rendering behind a fullscreen game? Yes.** Read from outside the app:
+
+| While | CPU, share of one core | GPU |
+|---|---|---|
+| Nothing fullscreen, three readings | 16.6% to 20.9% | 2.0% to 10.2% |
+| Behind a fullscreen game (`QUNS_RUNNING_D3D_FULL_SCREEN`), 30 s | 26.8% | 4.15% |
+
+So without Auto-hide the Pet misses the "zero impact" budget row in full, even though the game covers it.
+
+**`ABN_FULLSCREENAPP` works (P5).** `ABM_NEW` without `ABM_SETPOS` returned success and left the work area unchanged, on a
+hidden top-level window and on a message-only window. Both then got the message for every fullscreen entry and exit
+below, within 70 ms of the change for the probe's own windows. It works with no foreground change: Chrome F11 and a
+window resized to fill the monitor while already in front. In 11 minutes the appbars received no other notification.
+
+**It's a trigger, not an answer.** For 10 s during the session it reported fullscreen while the foreground window wasn't,
+and `SHQueryUserNotificationState` said `QUNS_BUSY` for the same 10 s. Both describe the shell's view, not "the
+foreground window". `QUNS_BUSY` also lingered briefly during Alt-Tab, so it stays out of the rule.
+
+**What each case looked like (P6).** "Covers" means the client area covers the monitor.
+
+| Case | Foreground class | Covers | `QUNS_*` | Triggers that fired |
+|---|---|---|---|---|
+| Chrome F11, in and out | `Chrome_WidgetWin_1` | Yes, then no | `BUSY`, then `ACCEPTS_NOTIFICATIONS` | Appbar and `LOCATIONCHANGE`, no foreground event |
+| Fullscreen video in Chrome | `Chrome_WidgetWin_1` | Yes | `BUSY` | Appbar and `LOCATIONCHANGE` |
+| Calculator with Win+Shift+Enter | `ApplicationFrameWindow`, in a host process | Yes | `APP` | Appbar and `LOCATIONCHANGE` |
+| Borderless monitor-sized window, including one DPI-unaware | Probe's own | Yes, in physical pixels at 150% | `BUSY` | Appbar |
+| Unity game | `UnityWndClass` | Yes | `RUNNING_D3D_FULL_SCREEN` | Appbar |
+| SDL game | `SDL_app` | Yes | `RUNNING_D3D_FULL_SCREEN` | Appbar and foreground |
+| Alt-Tab out of a game | `XamlExplorerHostIslandWindow` | No | `BUSY`, then `ACCEPTS_NOTIFICATIONS` | Appbar and foreground, and the game minimized |
+| Clicking the desktop | `Progman`, `NonRudeHWND` set | Yes, so it must be excluded | `ACCEPTS_NOTIFICATIONS` | **Only the 2 s re-check** |
+| Maximized Task Manager | `TaskManagerWindow` | No: bottom edge stops at the taskbar | `ACCEPTS_NOTIFICATIONS` | `LOCATIONCHANGE` |
+| Lock screen | `Windows.UI.Core.CoreWindow` | Yes | `NOT_PRESENT` | Desktop switch and foreground |
+
+- **Geometry alone found every fullscreen case,** including both games, so nothing here needed the shell state. A game
+  that changes the display mode wasn't tried.
+- **The 2 s re-check earned its place.** Two foreground changes, to the desktop and to a windowed `SDL_app`, raised no
+  foreground event at all. Neither was a fullscreen change, but nothing else saw them.
+- **A hidden fullscreen window** went through a NULL foreground for about 120 ms, and the appbar reported the exit.
+- **`GetPropW` works across processes:** it read `NonRudeHWND` on `Progman` and on the Alt-Tab window.
+- **The Windows hooks skip our own process,** so the probe's own windows only tested the appbar. Every hook row above comes
+  from a real app. A resize from a second process was caught by the appbar, so whether a scoped hook sees it is still
+  unknown.
+
+**Hook volume (P1).** Passive counts with the owner working normally:
+
+| Hook on `LOCATIONCHANGE` | Cursor events | CPU of the program holding the hook |
+|---|---|---|
+| All processes, 50 s | 22.2 a second | 0.156% of one core |
+| Foreground process, 50 s | 14.8 a second | Too small to read |
+| Scoped to the game, 30 s | 32.3 a second | Too small to read |
+
+Scoping to a process doesn't remove cursor events. Three hooks held at once over the same 45 s counted 1448 for all
+processes, 932 for the process under the cursor, and 0 for the Pet's process, so a scoped hook gets them only while the
+cursor is over that process. Even the unscoped cost is small. The case against this hook is about privacy and
+complexity, not CPU.
+
+**Elevated windows (P4).** With Task Manager in front, foreground and `LOCATIONCHANGE` events arrived, and `GetClientRect`,
+`ClientToScreen`, `GetWindowRect` and `GetPropW` all succeeded. The account is an administrator with UAC on, and the probe
+wasn't elevated. Task Manager rises without a prompt on such an account, but its level wasn't read directly, so this is
+strong evidence, not proof.
 
 # Unconfirmed items
 
-**Probes to run.** These were planned for this research and blocked by the session's permission policy. Each is a
-short throwaway program, and P1 to P4 need only a normal desktop session.
+**Probes.** Each is a short throwaway program.
 
-| # | Probe | Why it matters |
+| # | Probe | Result or why it matters |
 |---|---|---|
-| P1 | Hook `EVENT_OBJECT_LOCATIONCHANGE` globally and scoped to one process. Count events by `idObject` while moving the mouse and typing. | **Most important.** The volume and CPU argument rests on it. |
-| P2 | Start the spike, walk the UIA tree in raw and control views, look for the Overlay. Also list tray icons. | Whether UIA can see the Overlay at all. |
+| P1 | Hook `EVENT_OBJECT_LOCATIONCHANGE` globally and scoped to one process. Count events by `idObject` while moving the mouse and typing. | **Done 2026-11-01.** [Hook volume](#measured-on-this-machine). |
+| P2 | Start the spike, walk the UIA tree in raw and control views, look for the Overlay. Also list tray icons. | Open. Whether UIA can see the Overlay at all. |
 | P3 | **Done 2026-11-01:** injected keys trigger `RegisterHotKey`. See [Hotkey delivery](#check-by-check). | The hotkey test can use real delivery. |
-| P4 | With an elevated window such as Task Manager in front: do foreground events arrive, and do `GetClientRect` and `GetPropW` succeed? | Whether the elevated fallback is needed. |
-| P5 | Create a hidden window, send `ABM_NEW` without `ABM_SETPOS`. Check the work area is unchanged, then toggle F11 and watch for `ABN_FULLSCREENAPP`. | Could become the best trigger. |
-| P6 | Log the snapshot for: Chrome F11, fullscreen video, Edge, a borderless game, an exclusive game, a UWP app, a DPI-unaware borderless fullscreen app at the machine's scaling, a maximized titleless app with auto-hide taskbar, clicking the desktop, Alt-Tab in a game, and each `QUNS_*` value. | Settles most of the failure table. |
-| P7 | A workflow on `windows-latest` that starts the Overlay, captures it and clicks through it. | Whether real-exe tests can run on hosted CI. |
+| P4 | With an elevated window such as Task Manager in front: do foreground events arrive, and do `GetClientRect` and `GetPropW` succeed? | **Done 2026-11-01.** All yes, so no elevated fallback is needed. |
+| P5 | Create a hidden window, send `ABM_NEW` without `ABM_SETPOS`. Check the work area is unchanged, then toggle F11 and watch for `ABN_FULLSCREENAPP`. | **Done 2026-11-01.** It works, as a trigger only. |
+| P6 | Log the snapshot for: Chrome F11, fullscreen video, Edge, a borderless game, an exclusive game, a UWP app, a DPI-unaware borderless fullscreen app at the machine's scaling, a maximized titleless app with auto-hide taskbar, clicking the desktop, Alt-Tab in a game, and each `QUNS_*` value. | **Mostly done 2026-11-01.** Not run: Edge, a maximized titleless app with an auto-hide taskbar, a game that changes the display mode. `QUIET_TIME` and `PRESENTATION_MODE` never appeared. |
+| P7 | A workflow on `windows-latest` that starts the Overlay, captures it and clicks through it. | Open. Whether real-exe tests can run on hosted CI. |
 
 **Other open items:**
 
