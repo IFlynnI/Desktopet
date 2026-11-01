@@ -30,11 +30,61 @@ impl Rect {
             y: self.bottom - height,
         }
     }
+
+    /// Whether every part of `other` is inside this rect.
+    pub fn covers(&self, other: Rect) -> bool {
+        self.left <= other.left
+            && self.top <= other.top
+            && self.right >= other.right
+            && self.bottom >= other.bottom
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const MONITOR: Rect = Rect {
+        left: 0,
+        top: 0,
+        right: 100,
+        bottom: 100,
+    };
+
+    #[test]
+    fn given_a_rect_the_same_as_another_when_comparing_then_it_covers_it() {
+        // Given
+        let rect = MONITOR;
+
+        // When
+        let covers = rect.covers(MONITOR);
+
+        // Then
+        assert!(covers);
+    }
+
+    #[test]
+    fn given_a_rect_short_of_any_edge_when_comparing_then_it_does_not_cover_it() {
+        // Given
+        let short_of_each_edge = [
+            Rect { left: 1, ..MONITOR },
+            Rect { top: 1, ..MONITOR },
+            Rect {
+                right: 99,
+                ..MONITOR
+            },
+            Rect {
+                bottom: 99,
+                ..MONITOR
+            },
+        ];
+
+        // When
+        let covered = short_of_each_edge.map(|rect| rect.covers(MONITOR));
+
+        // Then
+        assert_eq!(covered, [false; 4]);
+    }
 
     #[test]
     fn given_a_rect_when_asked_for_its_size_then_width_and_height_are_right_minus_left_and_bottom_minus_top()
