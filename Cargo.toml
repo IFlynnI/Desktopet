@@ -26,6 +26,7 @@ bevy = { version = "=0.20.1", default-features = false, features = [
     "bevy_sprite_render",
     "png",
 ] }
+log = "0.4"
 raw-window-handle = "0.6"
 windows = "0.62"
 

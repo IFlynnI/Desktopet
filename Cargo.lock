@@ -3002,6 +3002,7 @@ version = "0.1.0"
 name = "pet-platform"
 version = "0.1.0"
 dependencies = [
+ "log",
  "pet-core",
  "raw-window-handle",
  "windows",

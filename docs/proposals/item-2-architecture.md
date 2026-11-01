@@ -199,6 +199,13 @@ Details and sources are in [e2e-testing-and-fullscreen-events.md](../research/e2
 - Calling `SetLayeredWindowAttributes` isn't needed, even though the Overlay gets the layered style before its
   first show. All real-exe tests pass without it.
 
+## Lessons from slice 2
+
+- Bevy closes a window over two updates, and a Hidden engine runs only when something wakes it, so the second update
+  never came and the app ignored `WM_CLOSE`. A close request now exits straight away, the same way Quit does.
+- winit notices an exit only when its next message arrives. A stopped engine has none coming, so it slept for ever with
+  the exit already requested. Every exit now sends one last wake-up.
+
 ## Where the spike's code goes
 
 | Spike file | What it does | Where it goes |

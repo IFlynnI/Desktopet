@@ -13,8 +13,9 @@ use windows::Win32::UI::HiDpi::{
     DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_MOUSE, MOUSE_EVENT_FLAGS, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP,
-    MOUSEINPUT, SendInput,
+    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP,
+    MOD_ALT, MOD_CONTROL, MOUSE_EVENT_FLAGS, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEINPUT,
+    RegisterHotKey, SendInput, UnregisterHotKey, VIRTUAL_KEY, VK_CONTROL, VK_MENU, VK_P,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     EnumWindows, GA_ROOT, GWL_EXSTYLE, GetAncestor, GetCursorPos, GetForegroundWindow,
@@ -30,6 +31,8 @@ const SETTLE: Duration = Duration::from_millis(60);
 const MIN_OVERLAY_WIDTH: i32 = 100;
 
 const CLOSE_TIMEOUT_MS: u32 = 5_000;
+
+const PRESENCE_CHANGE: Duration = Duration::from_secs(5);
 
 pub fn wait_until(timeout: Duration, mut check: impl FnMut() -> bool) -> bool {
     let start = Instant::now();
@@ -107,6 +110,24 @@ impl PetProcess {
     pub fn ex_style(&self) -> u32 {
         // SAFETY: takes plain values. A window that's gone returns 0, which fails the test's assertions.
         unsafe { GetWindowLongPtrW(self.overlay, GWL_EXSTYLE) as u32 }
+    }
+
+    /// What Windows reports for the Overlay. It's about the window, not what the screen shows.
+    pub fn is_shown(&self) -> bool {
+        // SAFETY: takes plain values. A window that's gone reads as not visible.
+        unsafe { IsWindowVisible(self.overlay) }.as_bool()
+    }
+
+    pub fn wait_until_hidden(&self) -> bool {
+        wait_until(PRESENCE_CHANGE, || !self.is_shown())
+    }
+
+    pub fn wait_until_shown(&self) -> bool {
+        wait_until(PRESENCE_CHANGE, || self.is_shown())
+    }
+
+    pub fn child(&self) -> &Child {
+        &self.child
     }
 
     pub fn close(mut self) -> io::Result<ExitStatus> {
@@ -198,6 +219,54 @@ fn mouse_button(flags: MOUSE_EVENT_FLAGS) -> INPUT {
                 ..Default::default()
             },
         },
+    }
+}
+
+fn key(key: VIRTUAL_KEY, flags: KEYBD_EVENT_FLAGS) -> INPUT {
+    INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: key,
+                dwFlags: flags,
+                ..Default::default()
+            },
+        },
+    }
+}
+
+/// Presses Ctrl+Alt+P on the real keyboard path, the way a person does.
+pub fn press_hotkey() {
+    let inputs = [
+        key(VK_CONTROL, KEYBD_EVENT_FLAGS(0)),
+        key(VK_MENU, KEYBD_EVENT_FLAGS(0)),
+        key(VK_P, KEYBD_EVENT_FLAGS(0)),
+        key(VK_P, KEYEVENTF_KEYUP),
+        key(VK_MENU, KEYEVENTF_KEYUP),
+        key(VK_CONTROL, KEYEVENTF_KEYUP),
+    ];
+    // SAFETY: `inputs` is a live array and the size is that of its element type. The whole batch goes in as one, so
+    // the modifier keys can't be left held down.
+    let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
+    assert_eq!(sent as usize, inputs.len(), "Windows rejected the keys");
+}
+
+/// Holds Ctrl+Alt+P for this thread, as another app would, until dropped.
+pub struct HotkeyTaken;
+
+impl HotkeyTaken {
+    pub fn by_this_test() -> Self {
+        // SAFETY: takes plain values.
+        unsafe { RegisterHotKey(None, 1, MOD_CONTROL | MOD_ALT, u32::from(VK_P.0)) }
+            .expect("Ctrl+Alt+P is free");
+        Self
+    }
+}
+
+impl Drop for HotkeyTaken {
+    fn drop(&mut self) {
+        // SAFETY: takes plain values, and this thread registered the key.
+        let _ = unsafe { UnregisterHotKey(None, 1) };
     }
 }
 

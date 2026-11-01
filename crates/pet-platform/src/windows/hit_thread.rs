@@ -2,7 +2,7 @@
 //! never misrouted (REN-05).
 
 use std::ffi::c_void;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -26,12 +26,32 @@ fn cursor_position() -> Option<Point> {
     })
 }
 
-pub fn spawn(overlay: isize, target: Arc<Mutex<Option<HitTarget>>>) {
+/// Lets the hit-test thread sleep while the Pet is Hidden. It waits to be told, so nothing polls.
+#[derive(Default)]
+pub struct HitTestPause {
+    hidden: Mutex<bool>,
+    changed: Condvar,
+}
+
+impl HitTestPause {
+    pub fn set_hidden(&self, hidden: bool) {
+        *self.hidden.lock().unwrap() = hidden;
+        self.changed.notify_all();
+    }
+
+    fn wait_while_hidden(&self) {
+        let hidden = self.hidden.lock().unwrap();
+        drop(self.changed.wait_while(hidden, |hidden| *hidden).unwrap());
+    }
+}
+
+pub fn spawn(overlay: isize, target: Arc<Mutex<Option<HitTarget>>>, pause: Arc<HitTestPause>) {
     thread::Builder::new()
         .name("hit-test".into())
         .spawn(move || {
             let hwnd = HWND(overlay as *mut c_void);
             loop {
+                pause.wait_while_hidden();
                 thread::sleep(POLL);
                 let Some(cursor) = cursor_position() else {
                     continue;
@@ -47,4 +67,59 @@ pub fn spawn(overlay: isize, target: Arc<Mutex<Option<HitTarget>>>) {
             }
         })
         .expect("the OS can start a thread");
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use super::*;
+
+    const LONG_ENOUGH_TO_NOTICE: Duration = Duration::from_millis(50);
+
+    /// A thread that reports each time it gets past the pause.
+    fn waiter(pause: Arc<HitTestPause>) -> mpsc::Receiver<()> {
+        let (passed, passes) = mpsc::channel();
+        thread::spawn(move || {
+            loop {
+                pause.wait_while_hidden();
+                if passed.send(()).is_err() {
+                    return;
+                }
+                thread::sleep(POLL);
+            }
+        });
+        passes
+    }
+
+    #[test]
+    fn given_the_pet_is_shown_when_waiting_then_the_thread_carries_on() {
+        // Given
+        let pause = Arc::new(HitTestPause::default());
+
+        // When
+        let passes = waiter(pause);
+
+        // Then
+        assert!(passes.recv_timeout(LONG_ENOUGH_TO_NOTICE).is_ok());
+    }
+
+    #[test]
+    fn given_the_pet_is_hidden_when_waiting_then_the_thread_stays_asleep_until_it_is_shown() {
+        // Given
+        let pause = Arc::new(HitTestPause::default());
+        pause.set_hidden(true);
+
+        // When
+        let passes = waiter(pause.clone());
+
+        // Then
+        assert!(passes.recv_timeout(LONG_ENOUGH_TO_NOTICE).is_err());
+
+        // When
+        pause.set_hidden(false);
+
+        // Then
+        assert!(passes.recv_timeout(LONG_ENOUGH_TO_NOTICE).is_ok());
+    }
 }

@@ -6,13 +6,17 @@ publish.workspace = true
 description = "The operating-system boundary for Desktop Pet: an OS-neutral API with no Bevy in it."
 
 [dependencies]
+log.workspace = true
 pet-core.workspace = true
 raw-window-handle.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
     "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

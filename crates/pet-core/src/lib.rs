@@ -3,3 +3,4 @@
 
 pub mod geometry;
 pub mod hit_mask;
+pub mod presence;

@@ -2,16 +2,21 @@
 
 mod dpi;
 mod hit_thread;
+mod hotkey;
 mod monitor;
+mod shell_thread;
 mod window_styles;
 
 use std::ffi::c_void;
+use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 use raw_window_handle::RawWindowHandle;
 use windows::Win32::Foundation::HWND;
 
-use crate::HitTarget;
+use crate::{HitTarget, ShellEvent, Wake};
+use hit_thread::HitTestPause;
+use shell_thread::ShellThread;
 
 pub use monitor::home_work_area;
 
@@ -25,11 +30,13 @@ pub fn prepare_process() {
 
 pub struct Platform {
     hit_target: Arc<Mutex<Option<HitTarget>>>,
+    hit_test_pause: Arc<HitTestPause>,
+    _shell: ShellThread,
 }
 
 impl Platform {
     /// Attaches to the Overlay and starts the background work. Call it before the Overlay is first shown.
-    pub fn start(window: RawWindowHandle) -> Self {
+    pub fn start(window: RawWindowHandle, events: Sender<ShellEvent>, wake: Wake) -> Self {
         let RawWindowHandle::Win32(handle) = window else {
             panic!("the Overlay on Windows has a Win32 window handle");
         };
@@ -39,11 +46,21 @@ impl Platform {
         window_styles::apply(hwnd, false);
 
         let hit_target = Arc::new(Mutex::new(None));
-        hit_thread::spawn(overlay, hit_target.clone());
-        Self { hit_target }
+        let hit_test_pause = Arc::new(HitTestPause::default());
+        hit_thread::spawn(overlay, hit_target.clone(), hit_test_pause.clone());
+        Self {
+            hit_target,
+            hit_test_pause,
+            _shell: ShellThread::spawn(events, wake),
+        }
     }
 
     pub fn publish_hit_target(&self, target: HitTarget) {
         *self.hit_target.lock().unwrap() = Some(target);
+    }
+
+    /// Pauses or resumes the hit-test thread. The engine shows and hides the Overlay itself.
+    pub fn set_hidden(&self, hidden: bool) {
+        self.hit_test_pause.set_hidden(hidden);
     }
 }

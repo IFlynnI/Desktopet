@@ -4,6 +4,7 @@
 
 mod hands_off;
 mod harness;
+mod metrics;
 mod quiet;
 mod screen;
 mod test_window;

@@ -1,5 +1,7 @@
 //! The transparent window the Pet is drawn on.
 
+use std::sync::mpsc::Sender;
+
 use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
 use bevy::render::view::Msaa;
@@ -7,8 +9,9 @@ use bevy::window::{
     CompositeAlphaMode, CursorOptions, PresentMode, PrimaryWindow, RawHandleWrapper, WindowLevel,
     WindowResolution,
 };
+use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use pet_core::geometry::{Point, Rect};
-use pet_platform::Platform;
+use pet_platform::{Platform, ShellEvent};
 
 /// The Overlay's rect on screen, in physical pixels.
 #[derive(Resource, Clone, Copy)]
@@ -16,6 +19,10 @@ pub struct OverlayRect(pub Rect);
 
 #[derive(Resource)]
 pub struct PlatformHandle(pub Platform);
+
+/// The sending end of the channel, waiting to go to `Platform::start`.
+#[derive(Resource)]
+pub struct ShellEventSender(pub Sender<ShellEvent>);
 
 /// The largest even-sized rect in the bottom-left of `work_area`.
 pub fn overlay_rect(work_area: Rect) -> Rect {
@@ -43,7 +50,8 @@ pub fn window_plugin(rect: Rect, composite_alpha_mode: CompositeAlphaMode) -> Wi
             transparent: true,
             resizable: false,
             focused: false,
-            // Invisible until `attach_platform` has set what must be in place before the first show.
+            // Invisible until `attach_platform` has set what must be in place before the first show. After
+            // that, Presence decides.
             visible: false,
             composite_alpha_mode,
             window_level: WindowLevel::AlwaysOnTop,
@@ -71,14 +79,22 @@ pub fn spawn_camera(mut commands: Commands) {
 /// itself waiting for this system to finish.
 pub fn attach_platform(
     mut commands: Commands,
-    mut windows: Query<(&mut Window, &RawHandleWrapper), With<PrimaryWindow>>,
+    windows: Query<&RawHandleWrapper, With<PrimaryWindow>>,
+    events: Res<ShellEventSender>,
+    proxy: Res<EventLoopProxyWrapper>,
     _main_thread: NonSendMarker,
 ) {
-    let Ok((mut window, handle)) = windows.single_mut() else {
+    let Ok(handle) = windows.single() else {
         return;
     };
-    commands.insert_resource(PlatformHandle(Platform::start(handle.get_window_handle())));
-    window.visible = true;
+    let proxy = (*proxy).clone();
+    let wake = Box::new(move || {
+        // This fails only once the engine has gone, and then there's nothing to wake.
+        let _ = proxy.send_event(WinitUserEvent::WakeUp);
+    });
+    let window = handle.get_window_handle();
+    let platform = Platform::start(window, events.0.clone(), wake);
+    commands.insert_resource(PlatformHandle(platform));
 }
 
 #[cfg(test)]
