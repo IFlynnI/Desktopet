@@ -1,5 +1,6 @@
 //! Windows implementation of the platform API. All Win32 and unsafe code lives under this folder.
 
+mod autostart;
 mod dpi;
 mod hit_thread;
 mod hotkey;

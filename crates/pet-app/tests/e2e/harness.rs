@@ -8,7 +8,10 @@ use std::time::{Duration, Instant};
 
 use pet_core::geometry::{Point, Rect};
 use windows::Win32::Foundation::{
-    CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT, WAIT_OBJECT_0, WPARAM,
+    CloseHandle, ERROR_SUCCESS, HANDLE, HWND, LPARAM, POINT, RECT, WAIT_OBJECT_0, WPARAM,
+};
+use windows::Win32::System::Registry::{
+    HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ, RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW,
 };
 use windows::Win32::System::Threading::{
     OpenMutexW, SYNCHRONIZATION_SYNCHRONIZE, WaitForSingleObject,
@@ -29,7 +32,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetCursorPos, SystemParametersInfoW, WM_CLOSE, WM_COMMAND, WM_LBUTTONUP, WM_RBUTTONUP,
     WindowFromPoint,
 };
-use windows::core::{BOOL, w};
+use windows::core::{BOOL, PCWSTR, w};
 
 /// Long enough for the 8 ms hit-test poll to react to a cursor move.
 const SETTLE: Duration = Duration::from_millis(60);
@@ -82,10 +85,97 @@ pub fn foreground_window() -> HWND {
     unsafe { GetForegroundWindow() }
 }
 
+const RUN_KEY: PCWSTR = w!(r"Software\Microsoft\Windows\CurrentVersion\Run");
+const RUN_VALUE: PCWSTR = w!("Desktop Pet");
+
+/// The app's entry under `key`, as raw text, or `None` when there isn't one.
+pub fn read_startup_entry(key: PCWSTR) -> Option<Vec<u8>> {
+    let mut bytes = 0;
+    // SAFETY: the caller's name is a static string, and with no buffer Windows only writes the size to `bytes`.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key,
+            RUN_VALUE,
+            RRF_RT_REG_SZ,
+            None,
+            None,
+            Some(&mut bytes),
+        )
+    };
+    if status != ERROR_SUCCESS {
+        return None;
+    }
+    let mut value = vec![0; bytes as usize];
+    // SAFETY: `value` holds the `bytes` Windows asked for, and both are live for the call.
+    let status = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            key,
+            RUN_VALUE,
+            RRF_RT_REG_SZ,
+            None,
+            Some(value.as_mut_ptr().cast()),
+            Some(&mut bytes),
+        )
+    };
+    assert_eq!(status, ERROR_SUCCESS, "read the startup entry");
+    Some(value)
+}
+
+/// Sets the entry under `key` to exactly `value`, or removes it for `None`.
+pub fn write_startup_entry(key: PCWSTR, value: Option<&[u8]>) {
+    // SAFETY: the caller's name is a static string, and `value` is live for the call.
+    let _ = unsafe {
+        match value {
+            Some(value) => RegSetKeyValueW(
+                HKEY_CURRENT_USER,
+                key,
+                RUN_VALUE,
+                REG_SZ.0,
+                Some(value.as_ptr().cast()),
+                value.len() as u32,
+            ),
+            None => RegDeleteKeyValueW(HKEY_CURRENT_USER, key, RUN_VALUE),
+        }
+    };
+}
+
+/// The tests can reach the real Launch on startup item, so this makes sure none of them changes the owner's real
+/// startup list without anyone noticing: it puts the entry back and fails the test.
+pub struct StartupListGuard {
+    key: PCWSTR,
+    before: Option<Vec<u8>>,
+}
+
+impl StartupListGuard {
+    fn new() -> Self {
+        Self::of(RUN_KEY)
+    }
+
+    /// Watches `key`, so this can be tested against a key of its own.
+    pub fn of(key: PCWSTR) -> Self {
+        let before = read_startup_entry(key);
+        Self { key, before }
+    }
+}
+
+impl Drop for StartupListGuard {
+    fn drop(&mut self) {
+        if read_startup_entry(self.key) != self.before {
+            write_startup_entry(self.key, self.before.as_deref());
+            if !thread::panicking() {
+                panic!("a test changed the real startup list, so it has been put back");
+            }
+        }
+    }
+}
+
 /// The running app. Dropping it closes the process, so a failed test leaves nothing behind.
 pub struct PetProcess {
     child: Child,
     overlay: HWND,
+    _startup_list: StartupListGuard,
 }
 
 impl PetProcess {
@@ -97,6 +187,7 @@ impl PetProcess {
         let mut process = Self {
             child,
             overlay: HWND::default(),
+            _startup_list: StartupListGuard::new(),
         };
         let pid = process.child.id();
         let appeared = wait_until(Duration::from_secs(30), || match visible_window_of(pid) {
@@ -249,7 +340,7 @@ const TRAY_CALLBACK_MESSAGE: u32 = 6002;
 
 /// What `muda` numbers the menu's items, in the order they're made.
 const SHOW_HIDE_ITEM: usize = 1000;
-const QUIT_ITEM: usize = 1001;
+const QUIT_ITEM: usize = 1002;
 
 struct TraySearch {
     pid: u32,

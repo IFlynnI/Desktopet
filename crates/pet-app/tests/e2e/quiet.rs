@@ -1,16 +1,21 @@
 //! Tests that never touch the mouse, so they can run while the owner is working.
 
+use std::panic::{self, AssertUnwindSafe};
 use std::thread;
 use std::time::Duration;
 
 use windows::Win32::Foundation::{HANDLE, RECT};
+use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RegDeleteTreeW};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetPropW, GetWindowRect, WS_EX_APPWINDOW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
     WS_EX_TOPMOST,
 };
 use windows::core::w;
 
-use crate::harness::{HotkeyTaken, PetProcess, make_dpi_aware, press_hotkey, work_area};
+use crate::harness::{
+    HotkeyTaken, PetProcess, StartupListGuard, make_dpi_aware, press_hotkey, read_startup_entry,
+    work_area, write_startup_entry,
+};
 use crate::metrics::{GpuUse, cpu_percent_of_one_core};
 
 /// A judgement, not a measurement: the most that still counts as stopped.
@@ -266,4 +271,25 @@ fn given_a_pet_is_running_when_the_harness_launches_one_then_it_stops_with_a_cle
 
     // When / Then
     PetProcess::launch();
+}
+
+#[test]
+fn given_a_test_changed_the_startup_list_when_it_ends_then_the_entry_goes_back_and_the_test_fails()
+{
+    // Given: a key of its own, so this never touches the real list
+    let key = w!(r"Software\DesktopPetTest-guard");
+    let changed_entry = [b'x', 0, 0, 0];
+
+    // When
+    let outcome = panic::catch_unwind(AssertUnwindSafe(|| {
+        let _guard = StartupListGuard::of(key);
+        write_startup_entry(key, Some(&changed_entry));
+    }));
+
+    // Then
+    let after = read_startup_entry(key);
+    // SAFETY: the name is a static string, and it's the key this test made.
+    let _ = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, key) };
+    assert!(outcome.is_err(), "the test should have failed");
+    assert_eq!(after, None, "the entry should have gone back");
 }
