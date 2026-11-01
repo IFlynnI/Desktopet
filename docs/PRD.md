@@ -120,7 +120,7 @@ Pure domain logic, independent of the engine, built test-first (§7.2).
 
 | ID | Requirement |
 |---|---|
-| SEN-01 | The pet may read **global cursor position** and **system idle time** (Win32 `GetLastInputInfo`) only. **Exception for WIN-07:** auto-hide may read the foreground window's geometry, class name and process ID, and never its title or the application's name. |
+| SEN-01 | The pet may read **global cursor position** and **system idle time** (Win32 `GetLastInputInfo`) only. **Exception for WIN-07:** auto-hide may read the foreground window's geometry, class name and process ID, and whether it declares itself never fullscreen, and never its title or the application's name. |
 | SEN-02 | **No keyboard hooks, no keystroke counting, no window titles, no screenshots** in the MVP. Active-app/window-title awareness arrives only with the AI phase and only as opt-in (§9, Track 6). |
 
 ### 5.6 Progression (MVP slice)
@@ -301,12 +301,12 @@ memory and fixed personality traits. Per-form trait modifiers (§8.3) feed into 
 ## 9. Roadmap
 
 ### 9.1 MVP core (sequential)
-1. **Platform spike** (§7.1) → stack locked.
-2. Window, click-through, auto-hide, tray, hotkey, autostart.
+1. **Platform spike** (§7.1) → stack locked. **Done.**
+2. Window, click-through, auto-hide, tray, hotkey, autostart. **Done.**
 3. Content-pack loader + renderer (integer scaling, per-frame durations, procedural layers, emotes).
 4. Domain core: behaviour engine, XP engine, form graph, pet physics including the ground plane (WIN-06).
 5. MVP interactions (throw, petting, cursor play, poke combos).
-6. Settings, save file, backups, export/import, optional SFX.
+6. Settings, save file, backups, export/import, optional SFX. Settings include the Return delay (`RETURN_DELAY` in `pet-core`).
 7. First real character pack: egg + hatch sequence + hatchling at the MVP art bar.
 
 Development on 2–6 runs against placeholder art; 7 runs in parallel and gates "MVP done".
@@ -421,6 +421,7 @@ fights at your side, and eventually talks with you — while never getting in yo
 | Ground plane moved from item 2 to item 4 (2026-11-01) | It's pet physics, which belongs in the domain core. Item 2 uses a stationary placeholder. |
 | CPU budget gated on the reference machine (2026-11-01) | Only that machine has been measured; the figure is a share of its 32 threads. |
 | Auto-hide reads foreground window geometry (2026-11-01) | WIN-07 can't work without it. Titles and application names stay off limits. |
+| Auto-hide looks at the Home monitor only (2026-11-01) | Multiple monitors can't be tested on the only machine available, so there's no code for them. |
 | OS boundary is a crate with one folder per OS (2026-11-01) | Keeps macOS/Linux additive. See [ADR-0001](adr/0001-os-boundary-crate.md). |
 | Hotkey through `RegisterHotKey` on a message window, not the `global-hotkey` crate (2026-11-01) | That crate polls `GetAsyncKeyState` after each press. A window also keeps a press that arrives during the tray menu. |
 | Hidden stops everything: window, camera, updates and the hit-test poll (2026-11-01) | "Zero impact" (§6.2) should mean it. The world freezes, so the Pet reappears where it was. |

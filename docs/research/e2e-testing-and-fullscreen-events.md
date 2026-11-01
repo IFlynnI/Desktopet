@@ -507,17 +507,19 @@ fullscreen = shell_state is RUNNING_D3D_FULL_SCREEN
 ```
 
 If there's no foreground window, or its client area can't be read, the answer stays as it was. `IsIconic` isn't needed,
-because a minimized window's client area is empty. Class names and process IDs aren't needed either, so this reads less
-than SEN-01 allows.
+because a minimized window's client area is empty. Class names and process IDs aren't needed either. The one thing read
+beyond geometry is `NonRudeHWND`, a flag a window sets to say it's never fullscreen. It's needed because the desktop and
+the Alt-Tab window both set it, and SEN-01's exception names it.
 
 **One hidden top-level window owns all of it.** A message-only window hears the shell's message but, as a Windows rule,
 no broadcasts, and a restarted Explorer has forgotten every appbar. The
 [`TaskbarCreated`](https://learn.microsoft.com/en-us/windows/win32/shell/taskbar) broadcast is the cue to register again.
 
 **Tested against the real app, 2026-11-01.** Broken on purpose, the new tests failed for the right reasons. With no watcher,
-all three behaviour tests failed. With only the foreground hook left, by removing the shell's message, the first check and
-the 2 s re-check, a fullscreen window coming to the front still hid the Pet and closing it brought the Pet back in about
-a second. Growing a window in front did not, and neither did launching behind one. So each trigger does the job it's here for.
+all three behaviour tests failed. With only the foreground hook left, by removing the shell's message and the first check and
+slowing the re-check to 60 s, a fullscreen window coming to the front still hid the Pet, and closing it brought the Pet
+back. Growing a window in front did not hide it, and launching behind one showed it. So each trigger does the job it's
+here for.
 
 During an Auto-hide the debug build used 0.26% of one core, against a limit of 0.5%, with GPU counter 0, over 12 s
 holding six re-checks.
