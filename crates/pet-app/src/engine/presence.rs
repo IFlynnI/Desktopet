@@ -20,12 +20,19 @@ pub struct CurrentPresence(pub Presence);
 #[derive(Resource)]
 pub struct ShellEvents(pub Mutex<Receiver<ShellEvent>>);
 
-pub fn drain_shell_events(events: Res<ShellEvents>, mut presence: ResMut<CurrentPresence>) {
+pub fn drain_shell_events(
+    events: Res<ShellEvents>,
+    mut presence: ResMut<CurrentPresence>,
+    mut exit: MessageWriter<AppExit>,
+) {
     let Ok(events) = events.0.lock() else { return };
     for event in events.try_iter() {
         match event {
             ShellEvent::Toggle => presence.toggle(),
             ShellEvent::Show => presence.show(),
+            ShellEvent::Quit => {
+                exit.write(AppExit::Success);
+            }
         }
     }
 }
@@ -191,6 +198,19 @@ mod tests {
             .app
             .world_mut()
             .write_message(WindowCloseRequested { window });
+        engine.app.update();
+
+        // Then
+        assert_eq!(engine.app.should_exit(), Some(AppExit::Success));
+    }
+
+    #[test]
+    fn given_a_hidden_pet_when_quit_arrives_then_the_app_exits_in_that_one_update() {
+        // Given
+        let mut engine = Engine::starting_with(Presence::with_manual_hide(true));
+
+        // When
+        engine.shell.send(ShellEvent::Quit).unwrap();
         engine.app.update();
 
         // Then

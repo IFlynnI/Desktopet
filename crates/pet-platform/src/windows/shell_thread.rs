@@ -9,14 +9,15 @@ use std::thread::{self, JoinHandle};
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, HWND_MESSAGE,
-    MSG, PostMessageW, PostQuitMessage, RegisterClassW, WINDOW_EX_STYLE, WINDOW_STYLE, WM_CLOSE,
-    WM_HOTKEY, WNDCLASSW,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, EndMenu, GetMessageW,
+    HWND_MESSAGE, MSG, PostMessageW, PostQuitMessage, RegisterClassW, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_CLOSE, WM_HOTKEY, WNDCLASSW,
 };
 use windows::core::{PCWSTR, w};
 
 use super::hotkey::Hotkey;
-use crate::{ShellEvent, Wake};
+use super::tray;
+use crate::{ShellEvent, TrayIconImage, Wake};
 
 const CLASS: PCWSTR = w!("DesktopPetMessageWindow");
 
@@ -55,8 +56,14 @@ unsafe extern "system" fn window_proc(
 ) -> LRESULT {
     match message {
         WM_HOTKEY => notify(ShellEvent::Toggle),
-        // SAFETY: takes a plain value.
-        WM_CLOSE => unsafe { PostQuitMessage(0) },
+        WM_CLOSE => {
+            // An open tray menu runs its own message loop, and the thread would never get out of it. This does nothing
+            // when no menu is open, and the error that reports that doesn't matter.
+            // SAFETY: takes no arguments.
+            let _ = unsafe { EndMenu() };
+            // SAFETY: takes a plain value.
+            unsafe { PostQuitMessage(0) };
+        }
         // SAFETY: passes on exactly what Windows gave this callback.
         _ => return unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
     }
@@ -106,7 +113,9 @@ impl Drop for MessageWindow {
     }
 }
 
-fn run(notifier: Notifier, started: Sender<isize>) {
+/// Whatever owns a window or a registration drops here on the way out, in reverse order: the tray icon first, and the
+/// message window last.
+fn run(notifier: Notifier, tray_icon: TrayIconImage, started: Sender<isize>) {
     NOTIFIER.with(|cell| cell.set(notifier).ok());
     let window = MessageWindow::create();
     // If the caller has gone, there's nobody to tell.
@@ -116,6 +125,7 @@ fn run(notifier: Notifier, started: Sender<isize>) {
     if hotkey.is_none() {
         log::warn!("Ctrl+Alt+P is taken by another app, so the hotkey is off");
     }
+    let _tray = tray::add(tray_icon, hotkey.is_some(), notify);
 
     let mut message = MSG::default();
     // SAFETY: `message` is a live local. GetMessageW returns 0 on quit and -1 on an error, and both end the loop.
@@ -132,11 +142,11 @@ pub struct ShellThread {
 }
 
 impl ShellThread {
-    pub fn spawn(events: Sender<ShellEvent>, wake: Wake) -> Self {
+    pub fn spawn(events: Sender<ShellEvent>, wake: Wake, tray_icon: TrayIconImage) -> Self {
         let (started, window) = mpsc::channel();
         let thread = thread::Builder::new()
             .name("shell".into())
-            .spawn(move || run(Notifier { events, wake }, started))
+            .spawn(move || run(Notifier { events, wake }, tray_icon, started))
             .expect("the OS can start a thread");
         Self {
             window: window.recv().expect("the shell thread starts"),

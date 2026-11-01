@@ -11,6 +11,6 @@ use self::windows as os;
 #[cfg(not(windows))]
 compile_error!("Desktop Pet only supports Windows so far (PRD §3)");
 
-pub use events::{ShellEvent, Wake};
+pub use events::{ShellEvent, TrayIconImage, Wake};
 pub use hit_target::HitTarget;
 pub use os::{Platform, home_work_area, prepare_process};

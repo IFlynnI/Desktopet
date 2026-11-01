@@ -10,7 +10,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use pet_core::geometry::Rect;
 use pet_core::hit_mask::{HitMask, Placement};
-use pet_platform::HitTarget;
+use pet_platform::{HitTarget, TrayIconImage};
 
 use super::overlay::{OverlayRect, PlatformHandle, sprite_translation};
 
@@ -131,6 +131,21 @@ struct FrameAssets {
 
 #[derive(Component)]
 struct PlaceholderSprite;
+
+/// The first frame, padded to a square, because Windows stretches an icon that is not one. The art is wider than tall.
+pub fn tray_icon_image() -> TrayIconImage {
+    let art = art();
+    let blank_row = vec![0; (art.width * 4) as usize];
+    let padding = (art.width - art.height) as usize;
+    let mut rgba = blank_row.repeat(padding / 2);
+    rgba.extend_from_slice(&art.frames[0]);
+    rgba.extend(blank_row.repeat(padding - padding / 2));
+    TrayIconImage {
+        rgba,
+        width: art.width,
+        height: art.width,
+    }
+}
 
 /// Shows the placeholder standing at the bottom centre of `work_area`.
 pub struct PlaceholderPlugin {
@@ -271,6 +286,21 @@ mod tests {
         // Then
         assert!(masks.iter().all(|mask| !mask.is_opaque(9, 16)));
         assert!(masks.iter().all(|mask| mask.is_opaque(5, 16)));
+    }
+
+    #[test]
+    fn given_the_placeholder_art_when_making_the_tray_icon_then_it_is_square_and_loses_no_pixels() {
+        // Given
+        let opaque = |rgba: &[u8]| rgba.chunks(4).filter(|pixel| pixel[3] > 0).count();
+        let in_the_art = opaque(&art().frames[0]);
+
+        // When
+        let image = tray_icon_image();
+
+        // Then
+        assert_eq!(image.width, image.height);
+        assert_eq!(image.rgba.len(), (image.width * image.height * 4) as usize);
+        assert_eq!(opaque(&image.rgba), in_the_art);
     }
 
     #[test]

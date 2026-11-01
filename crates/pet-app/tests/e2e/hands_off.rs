@@ -1,5 +1,6 @@
 //! Tests that need the real mouse. Keep your hands off it while they run.
 
+use std::thread;
 use std::time::Duration;
 
 use pet_core::geometry::{Point, Rect};
@@ -190,4 +191,19 @@ fn given_another_window_has_focus_when_clicking_the_pet_then_that_window_keeps_i
 
     // Then
     assert_eq!(foreground_window(), scene.window.hwnd());
+}
+
+#[test]
+fn given_the_tray_menu_is_open_when_the_app_closes_then_it_exits() {
+    // Given: this opens a real menu and it takes the foreground, so it isn't a quiet test
+    let pet = PetProcess::launch();
+    let tray = pet.tray();
+    tray.right_click();
+    thread::sleep(Duration::from_millis(300));
+
+    // When
+    let status = pet.close().expect("wait for the app");
+
+    // Then: a menu left open keeps its own message loop running, and would stop the app from ever exiting
+    assert!(status.success(), "{status}");
 }

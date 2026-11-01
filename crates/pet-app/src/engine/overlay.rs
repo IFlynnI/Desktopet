@@ -13,6 +13,8 @@ use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use pet_core::geometry::{Point, Rect};
 use pet_platform::{Platform, ShellEvent};
 
+use super::placeholder;
+
 /// The Overlay's rect on screen, in physical pixels.
 #[derive(Resource, Clone, Copy)]
 pub struct OverlayRect(pub Rect);
@@ -93,7 +95,8 @@ pub fn attach_platform(
         let _ = proxy.send_event(WinitUserEvent::WakeUp);
     });
     let window = handle.get_window_handle();
-    let platform = Platform::start(window, events.0.clone(), wake);
+    let tray_icon = placeholder::tray_icon_image();
+    let platform = Platform::start(window, events.0.clone(), wake, tray_icon);
     commands.insert_resource(PlatformHandle(platform));
 }
 

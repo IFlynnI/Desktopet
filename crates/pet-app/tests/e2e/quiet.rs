@@ -155,3 +155,77 @@ fn given_a_hidden_pet_when_measured_then_it_uses_next_to_no_cpu_and_no_gpu() {
     );
     assert_eq!(gpu_hidden, 0.0);
 }
+
+#[test]
+fn given_the_app_started_when_asking_the_taskbar_then_it_has_the_tray_icon() {
+    // Given
+    let pet = PetProcess::launch();
+
+    // When
+    let tray = pet.tray();
+
+    // Then
+    assert!(tray.icon_exists());
+}
+
+#[test]
+fn given_a_shown_pet_when_left_clicking_the_tray_icon_then_it_hides_and_a_second_click_shows_it() {
+    // Given
+    let pet = PetProcess::launch();
+    let tray = pet.tray();
+
+    // When
+    tray.left_click();
+
+    // Then
+    assert!(pet.wait_until_hidden(), "the first click hides the Overlay");
+
+    // When
+    tray.left_click();
+
+    // Then
+    assert!(pet.wait_until_shown(), "the second click shows it again");
+}
+
+#[test]
+fn given_a_shown_pet_when_choosing_show_hide_then_it_hides() {
+    // Given
+    let pet = PetProcess::launch();
+    let tray = pet.tray();
+
+    // When
+    tray.choose_show_hide();
+
+    // Then
+    assert!(pet.wait_until_hidden());
+}
+
+#[test]
+fn given_a_running_pet_when_choosing_quit_then_it_exits_cleanly() {
+    // Given
+    let pet = PetProcess::launch();
+    let tray = pet.tray();
+
+    // When
+    tray.choose_quit();
+
+    // Then
+    let status = pet.wait_for_exit().expect("wait for the app");
+    assert!(status.success(), "{status}");
+}
+
+#[test]
+fn given_a_hidden_pet_when_choosing_quit_then_it_still_exits() {
+    // Given: the engine is stopped, so the wake-up has to reach it
+    let pet = PetProcess::launch();
+    let tray = pet.tray();
+    tray.left_click();
+    assert!(pet.wait_until_hidden());
+
+    // When
+    tray.choose_quit();
+
+    // Then
+    let status = pet.wait_for_exit().expect("wait for the app");
+    assert!(status.success(), "{status}");
+}

@@ -9,14 +9,8 @@ where it's going, and the [glossary](GLOSSARY.md) for the words used here.
 cargo run -p pet-app
 ```
 
-Press Ctrl+C in that terminal to stop it.
-
-A release build (`--release`) has no console, so Ctrl+C can't reach it, and `cargo run` waits for it forever. There's
-no Quit in the app yet, so stop a release build with:
-
-```bash
-taskkill /IM desktop-pet.exe /F
-```
+Press Ctrl+Alt+P or left-click the tray icon to hide or show the Pet. To stop it, right-click the tray icon and
+choose Quit.
 
 ## Test it
 

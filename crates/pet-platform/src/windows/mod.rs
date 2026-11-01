@@ -5,6 +5,7 @@ mod hit_thread;
 mod hotkey;
 mod monitor;
 mod shell_thread;
+mod tray;
 mod window_styles;
 
 use std::ffi::c_void;
@@ -14,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use raw_window_handle::RawWindowHandle;
 use windows::Win32::Foundation::HWND;
 
-use crate::{HitTarget, ShellEvent, Wake};
+use crate::{HitTarget, ShellEvent, TrayIconImage, Wake};
 use hit_thread::HitTestPause;
 use shell_thread::ShellThread;
 
@@ -36,7 +37,12 @@ pub struct Platform {
 
 impl Platform {
     /// Attaches to the Overlay and starts the background work. Call it before the Overlay is first shown.
-    pub fn start(window: RawWindowHandle, events: Sender<ShellEvent>, wake: Wake) -> Self {
+    pub fn start(
+        window: RawWindowHandle,
+        events: Sender<ShellEvent>,
+        wake: Wake,
+        tray_icon: TrayIconImage,
+    ) -> Self {
         let RawWindowHandle::Win32(handle) = window else {
             panic!("the Overlay on Windows has a Win32 window handle");
         };
@@ -51,7 +57,7 @@ impl Platform {
         Self {
             hit_target,
             hit_test_pause,
-            _shell: ShellThread::spawn(events, wake),
+            _shell: ShellThread::spawn(events, wake, tray_icon),
         }
     }
 

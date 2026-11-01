@@ -3,6 +3,16 @@
 pub enum ShellEvent {
     Toggle,
     Show,
+    Quit,
+}
+
+/// The tray icon as plain pixels, so this crate stays free of art.
+#[derive(Clone, Debug)]
+pub struct TrayIconImage {
+    /// RGBA8, top row first.
+    pub rgba: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// Wakes the engine. `pet-platform` can't name Bevy's types, so the app passes this in.

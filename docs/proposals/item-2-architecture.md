@@ -206,6 +206,15 @@ Details and sources are in [e2e-testing-and-fullscreen-events.md](../research/e2
 - winit notices an exit only when its next message arrives. A stopped engine has none coming, so it slept for ever with
   the exit already requested. Every exit now sends one last wake-up.
 
+- `tray-icon` works off the main thread, checked with a probe before building on it. A tray or menu handler runs on
+  the thread that made the icon, and that thread must call `EndMenu` before it stops: an open menu runs its own message
+  loop, and without that call the shell thread never got out of it. Stopping it had to be a window message too, because
+  that loop only hands on those.
+- Nothing can tell from outside that an icon was removed cleanly. `Shell_NotifyIconGetRect` and `NIM_MODIFY` both name
+  the icon by its window, and both fail once that window has gone, even with a dead icon still on the taskbar. Measured
+  by leaving the icon in place on purpose: the check still passed. So tests only use them while the app runs, and
+  whether the shell thread has stopped is checked from inside the process after `pet_app::run` returns.
+
 ## Where the spike's code goes
 
 | Spike file | What it does | Where it goes |

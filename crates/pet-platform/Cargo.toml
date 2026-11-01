@@ -11,6 +11,7 @@ pet-core.workspace = true
 raw-window-handle.workspace = true
 
 [target.'cfg(windows)'.dependencies]
+tray-icon.workspace = true
 windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
