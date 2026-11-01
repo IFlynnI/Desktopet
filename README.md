@@ -27,7 +27,8 @@ your mouse alone, so you can keep working:
 cargo e2e-quiet
 ```
 
-The full set also takes over your mouse and opens a magenta window, so keep your hands off it:
+The full set also takes over your mouse and opens a magenta window, so keep your hands off it. It stops with a clear
+message if the mouse moves:
 
 ```bash
 cargo e2e

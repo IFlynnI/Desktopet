@@ -5,6 +5,7 @@ use std::thread;
 use std::time::Duration;
 
 use pet_app::RENDER_FAILURE_EXIT;
+use pet_core::geometry::Point;
 use windows::Win32::Foundation::{HANDLE, RECT};
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RegDeleteTreeW};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -14,8 +15,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::w;
 
 use crate::harness::{
-    FailWhen, HotkeyTaken, PetProcess, Relaunched, StartupListGuard, make_dpi_aware, press_hotkey,
-    read_startup_entry, wait_until, work_area, write_startup_entry,
+    FailWhen, HotkeyTaken, PetProcess, Relaunched, StartupListGuard, assert_cursor_is_at,
+    cursor_position, make_dpi_aware, press_hotkey, read_startup_entry, wait_until, work_area,
+    write_startup_entry,
 };
 use crate::metrics::{GpuUse, cpu_percent_of_one_core};
 
@@ -342,4 +344,27 @@ fn given_a_manual_hide_when_the_app_relaunches_then_it_stays_hidden_until_the_ho
         wait_until(Duration::from_secs(5), || relaunched.overlay().is_some()),
         "the hotkey shows it"
     );
+}
+
+#[test]
+fn given_the_cursor_is_where_it_was_left_when_checking_it_then_the_run_carries_on() {
+    // Given
+    let left_at = cursor_position();
+
+    // When / Then
+    assert_cursor_is_at(left_at);
+}
+
+#[test]
+#[should_panic(expected = "the mouse moved during the run")]
+fn given_the_cursor_is_somewhere_else_when_checking_it_then_the_run_stops_with_a_clear_reason() {
+    // Given: this only compares positions, so the mouse stays where it is
+    let cursor = cursor_position();
+    let expected = Point {
+        x: cursor.x + 1,
+        y: cursor.y,
+    };
+
+    // When / Then
+    assert_cursor_is_at(expected);
 }

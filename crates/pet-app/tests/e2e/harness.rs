@@ -629,11 +629,31 @@ impl Drop for HotkeyTaken {
     }
 }
 
+pub fn cursor_position() -> Point {
+    let mut point = POINT::default();
+    // SAFETY: `point` is a live local that Windows writes during the call.
+    unsafe { GetCursorPos(&mut point) }.expect("read the cursor");
+    Point {
+        x: point.x,
+        y: point.y,
+    }
+}
+
+/// A person moved the mouse if it isn't where this test put it, so the results can't be trusted and the run should end.
+pub fn assert_cursor_is_at(point: Point) {
+    assert_eq!(
+        cursor_position(),
+        point,
+        "the mouse moved during the run, so it stopped: run it again and keep your hands off the mouse"
+    );
+}
+
 /// Moves the real cursor to `point` and asks Windows which top-level window would get a click there.
 pub fn window_under_cursor_at(point: Point, settle: Duration) -> HWND {
     // SAFETY: takes plain values.
     unsafe { SetCursorPos(point.x, point.y) }.expect("move the cursor");
     thread::sleep(settle);
+    assert_cursor_is_at(point);
     let point = POINT {
         x: point.x,
         y: point.y,
