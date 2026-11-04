@@ -23,7 +23,8 @@ impl Plugin for ShadowPlugin {
         app.add_systems(
             Update,
             (
-                make_images.run_if(resource_added::<CurrentPack>),
+                // Again whenever an edited Pack replaces it, which may have other Forms.
+                make_images.run_if(resource_exists_and_changed::<CurrentPack>),
                 draw.run_if(resource_exists::<ShadowImages>),
             )
                 .chain(),
@@ -47,7 +48,7 @@ pub struct Shadowed(Entity);
 #[derive(Resource)]
 struct ShadowImages(Vec<Option<(Shadow, Handle<ColorMaterial>)>>);
 
-/// Makes the image and material of each Form's shadow, once, from the Definition alone.
+/// Makes the image and material of each Form's shadow, once per Pack, from the Definition alone.
 fn make_images(
     mut commands: Commands,
     pack: Res<CurrentPack>,

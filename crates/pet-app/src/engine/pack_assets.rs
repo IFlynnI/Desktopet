@@ -33,8 +33,8 @@ pub struct FrameAsset {
 pub struct PackAssets {
     /// By Form, then Animation, then Frame, numbered as in the Definition.
     frames: Vec<Vec<Vec<FrameAsset>>>,
-    /// By Emote, then Frame. Made once with the rest, so showing an Emote never makes a material. Slice 5's hot reload
-    /// replaces the Pack, and these with it.
+    /// By Emote, then Frame. Made once with the rest, so showing an Emote never makes a material. An edited Pack
+    /// replaces all of these (`hot_reload`).
     emotes: Vec<Vec<Handle<ColorMaterial>>>,
 }
 

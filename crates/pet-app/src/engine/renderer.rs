@@ -112,7 +112,7 @@ fn hit_target(
 
 /// Publishes when the Frame, position or facing changes, and once when the platform arrives. The platform comes in
 /// the first update, after the Pet has appeared, so without that a Pet whose Frame never changes would never publish.
-fn publish_hit_target<Platform: HitTest>(
+pub(super) fn publish_hit_target<Platform: HitTest>(
     pack: Res<CurrentPack>,
     assets: Res<PackAssets>,
     pets: Query<Shown, With<Pet>>,
@@ -130,18 +130,16 @@ fn publish_hit_target<Platform: HitTest>(
 #[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use std::time::Duration;
-    use std::{env, fs, io, process};
+    use std::{env, fs, process};
 
     use bevy::ecs::component::Mutable;
     use bevy::ecs::schedule::SingleThreadedExecutor;
-    use bevy::log::tracing;
-    use bevy::log::tracing_subscriber::fmt;
     use bevy::time::TimeUpdateStrategy;
     use pet_content::{LoadedPack, PackError};
     use pet_core::geometry::{Point, Rect};
-    use pet_core::hit_mask::{HitMask, Placement};
+    use pet_core::hit_mask::Placement;
     use pet_core::pack::{AnimationId, EmoteId, FormId};
     use pet_core::placement::Facing;
     use pet_sim::{EmoteFrame, ShownEmote, SimPlugin};
@@ -151,38 +149,8 @@ mod tests {
     use crate::engine::pack_assets::PackAtStartup;
     use crate::engine::pixel_art::PixelArtPlugin;
     use crate::engine::shadow::{ShadowOf, ShadowPlugin};
+    use crate::engine::test_support::{CapturedLog, RecordingPlatform};
     use crate::pack::StartingPack;
-
-    /// Everything logged while it's in use, as text.
-    #[derive(Clone, Default)]
-    struct CapturedLog(Arc<Mutex<Vec<u8>>>);
-
-    impl io::Write for CapturedLog {
-        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-
-        fn flush(&mut self) -> io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl CapturedLog {
-        /// Runs `run` with everything it logs on this thread captured.
-        fn during(&self, run: impl FnOnce()) {
-            let writer = self.clone();
-            let subscriber = fmt()
-                .with_ansi(false)
-                .with_writer(move || writer.clone())
-                .finish();
-            tracing::subscriber::with_default(subscriber, run);
-        }
-
-        fn text(&self) -> String {
-            String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
-        }
-    }
 
     const WORK_AREA: Rect = Rect {
         left: 0,
@@ -343,29 +311,6 @@ mod tests {
 
         // Then
         assert!(pet_drawables(&mut app).is_empty());
-    }
-
-    /// Stands in for the platform, keeping every Hit target it's given.
-    #[derive(Resource, Default)]
-    struct RecordingPlatform(Mutex<Vec<HitTarget>>);
-
-    impl HitTest for RecordingPlatform {
-        fn publish_hit_target(&self, target: HitTarget) {
-            self.0.lock().unwrap().push(target);
-        }
-    }
-
-    impl RecordingPlatform {
-        fn published(app: &App) -> Vec<(HitMask, Placement)> {
-            app.world()
-                .resource::<RecordingPlatform>()
-                .0
-                .lock()
-                .unwrap()
-                .iter()
-                .map(|target| ((*target.mask).clone(), target.placement))
-                .collect()
-        }
     }
 
     /// The placeholder Pet with the recording platform's publisher, and time standing still.

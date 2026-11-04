@@ -116,6 +116,15 @@ pub fn frame(index: usize) -> Picture {
     picture(&IDLE[index], colour)
 }
 
+/// One Frame of the idle Animation after an edit that swaps its two colours, `a` and `b`. Nothing else changes.
+pub fn recoloured_frame(index: usize) -> Picture {
+    picture(&IDLE[index], |pixel| match pixel {
+        'a' => colour('b'),
+        'b' => colour('a'),
+        other => colour(other),
+    })
+}
+
 /// Frame `index` of the Emote `name` as the renderer draws it, in Pack pixels.
 pub fn emote(name: &str, index: usize) -> Picture {
     picture(&emote_art(name)[index], drawn_colour)
@@ -155,21 +164,36 @@ pub fn shadow() -> Picture {
 
 /// Writes the Pack, with no shadow, into a folder for `test`, loads it, and removes the folder again.
 pub fn load(test: &str) -> (PathBuf, LoadedPack) {
-    write_and_load(test, "", "")
+    write_and_load(test, "", "", frame)
+}
+
+/// The same Pack with its idle art in other colours, as `recoloured_frame` draws it.
+pub fn load_recoloured(test: &str) -> (PathBuf, LoadedPack) {
+    write_and_load(test, "", "", recoloured_frame)
 }
 
 /// The same Pack, its idle Action crouched into a Body of its own: 1 Pack pixel tall, from 1 left of the Anchor to 2
 /// right of it. The Pet's art reaches 3 Pack pixels above it.
 pub fn load_crouched(test: &str) -> (PathBuf, LoadedPack) {
-    write_and_load(test, "", "body = { x = -1, y = -1, width = 3, height = 1 }")
+    write_and_load(
+        test,
+        "",
+        "body = { x = -1, y = -1, width = 3, height = 1 }",
+        frame,
+    )
 }
 
 /// The same Pack with its shadow.
 pub fn load_with_shadow(test: &str) -> (PathBuf, LoadedPack) {
-    write_and_load(test, SHADOW, "")
+    write_and_load(test, SHADOW, "", frame)
 }
 
-fn write_and_load(test: &str, shadow: &str, idle_body: &str) -> (PathBuf, LoadedPack) {
+fn write_and_load(
+    test: &str,
+    shadow: &str,
+    idle_body: &str,
+    idle: fn(usize) -> Picture,
+) -> (PathBuf, LoadedPack) {
     let folder = env::temp_dir().join(format!("desktop-pet-render-{}-{test}", process::id()));
     let _ = fs::remove_dir_all(&folder);
     fs::create_dir_all(folder.join("hatchling")).expect("make the Pack folder");
@@ -181,7 +205,7 @@ fn write_and_load(test: &str, shadow: &str, idle_body: &str) -> (PathBuf, Loaded
             .replace("# idle body", idle_body),
     )
     .expect("write the manifest");
-    write_strip(&folder.join("hatchling/idle.png"), &[frame(0), frame(1)]);
+    write_strip(&folder.join("hatchling/idle.png"), &[idle(0), idle(1)]);
     for name in ["note", "pop"] {
         let frames: Vec<Picture> = emote_art(name)
             .iter()

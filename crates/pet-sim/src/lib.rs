@@ -17,7 +17,7 @@ use pet_core::placement::Facing;
 
 pub use clock::{AnimationClock, Hidden, ShownFrame};
 pub use emotes::{EmoteClock, EmoteFrame, EmoteRequest, PlayingEmote, ShownEmote};
-pub use pack::{CurrentPack, PackReloaded};
+pub use pack::{CurrentPack, PackReloaded, replace_pack};
 pub use phases::Phase;
 
 /// Runs the simulation. `work_area` is where the Pet lives, in physical pixels.

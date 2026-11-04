@@ -268,6 +268,11 @@ fn copy_folder(from: &Path, to: &Path) {
 /// The placeholder Pack with a Form whose default Action doesn't exist, and a Frame of 0 ms.
 fn write_broken_pack(folder: &Path) {
     copy_folder(&placeholder_pack(), folder);
+    break_manifest(folder);
+}
+
+/// Puts the mistakes `BROKEN_FIELDS` names into the placeholder manifest in `folder`.
+pub fn break_manifest(folder: &Path) {
     let manifest = folder.join("manifest.toml");
     let text = fs::read_to_string(&manifest).expect("read the manifest");
     let broken = text
@@ -331,6 +336,11 @@ impl TestData {
     /// Where the app looks for Packs, unless `DESKTOP_PET_PACKS` says otherwise.
     fn packs_folder(&self) -> PathBuf {
         self.0.join("DesktopPet").join("packs")
+    }
+
+    /// The Pack the app uses, for every `Packs` but `Empty` and `OverriddenWithBroken`.
+    pub fn pack_folder(&self) -> PathBuf {
+        self.packs_folder().join("placeholder")
     }
 
     /// Fills the Packs folders, and says which one the app should look in. `None` means the usual one.

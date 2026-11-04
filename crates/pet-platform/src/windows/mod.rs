@@ -2,6 +2,7 @@
 
 mod autostart;
 mod dpi;
+mod folder_watch;
 mod foreground;
 mod hit_thread;
 mod hotkey;
@@ -25,6 +26,7 @@ use crate::{HitTarget, ShellEvent, TrayIconImage, Wake};
 use hit_thread::HitTestPause;
 use shell_thread::ShellThread;
 
+pub use folder_watch::FolderWatch;
 pub use monitor::home_work_area;
 pub use single_instance::{SingleInstance, acquire_single_instance};
 

@@ -1,6 +1,7 @@
 //! The Bevy adapter: draws the Pet on the Overlay.
 
 mod emote_view;
+mod hot_reload;
 mod log_file;
 mod overlay;
 mod pack_assets;
@@ -12,6 +13,8 @@ mod render_config_windows;
 mod render_failure;
 mod renderer;
 mod shadow;
+#[cfg(test)]
+mod test_support;
 mod tray_icon;
 
 use std::sync::atomic::AtomicBool;
@@ -35,6 +38,8 @@ use presence::{CurrentPresence, ManualHideAtExit, ShellEvents};
 use renderer::RendererPlugin;
 use shadow::ShadowPlugin;
 
+pub use hot_reload::PackEdited;
+pub(crate) use hot_reload::Watching;
 pub use pack_assets::PackAtStartup;
 pub use render_config::render_plugin;
 pub use render_failure::{RENDER_FAILURE_EXIT, is_render_failure};
@@ -42,7 +47,8 @@ pub use render_failure::{RENDER_FAILURE_EXIT, is_render_failure};
 use crate::pack::StartingPack;
 
 /// Draws the Pet the simulation shows, its shadow and its Emote, into whatever camera exists, on a clear background.
-/// `overlay` is the rect the camera covers, in physical pixels. The Pack comes from `PackAtStartup`.
+/// `overlay` is the rect the camera covers, in physical pixels. The Pack comes from `PackAtStartup`, and an edited one
+/// replaces it when a `PackEdited` arrives.
 pub struct PetRenderPlugin {
     pub overlay: Rect,
 }
@@ -51,9 +57,15 @@ impl Plugin for PetRenderPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ClearColor(Color::NONE))
             .insert_resource(OverlayRect(self.overlay))
+            .add_message::<PackEdited>()
             .add_systems(
                 Startup,
                 pack_assets::add_starting_pack.run_if(resource_exists::<PackAtStartup>),
+            )
+            // Before the ticks and the renderer, so both only ever see one Pack.
+            .add_systems(
+                PreUpdate,
+                hot_reload::apply_edits.run_if(on_message::<PackEdited>),
             )
             .add_plugins((
                 PixelArtPlugin,
@@ -87,12 +99,14 @@ pub fn base_plugins() -> PluginGroupBuilder {
         .set(render_config::render_plugin())
 }
 
-/// The engine, ready to run. With no usable Pack it still runs, with no Pet, so the tray can still quit.
-pub fn app(
+/// The engine, ready to run. With no usable Pack it still runs, with no Pet, so the tray can still quit. `watching`
+/// is the chosen Pack's folder being watched for edits, started before the Pack was read.
+pub(crate) fn app(
     work_area: Rect,
     start: Presence,
     manual_hide_at_exit: Arc<AtomicBool>,
     pack: StartingPack,
+    watching: Watching,
 ) -> App {
     let rect = overlay::overlay_rect(work_area);
     let (sender, receiver) = mpsc::channel();
@@ -127,5 +141,6 @@ pub fn app(
                 .chain(),
         )
         .add_systems(Last, presence::wake_for_exit);
+    watching.install(&mut app);
     app
 }

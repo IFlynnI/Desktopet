@@ -36,7 +36,13 @@ pub fn packs_folder(override_folder: Option<OsString>, usual: Option<PathBuf>) -
 impl StartingPack {
     /// Loads the first Pack in `packs_folder` by folder name.
     pub fn load(packs_folder: Option<PathBuf>) -> Self {
-        let Some(folder) = packs_folder.as_deref().and_then(pet_content::discover) else {
+        let chosen = packs_folder.as_deref().and_then(pet_content::discover);
+        Self::load_chosen(packs_folder, chosen)
+    }
+
+    /// Loads the Pack `chosen` from `packs_folder`, or says there was none to choose.
+    pub fn load_chosen(packs_folder: Option<PathBuf>, chosen: Option<PathBuf>) -> Self {
+        let Some(folder) = chosen else {
             return Self::NoPack { packs_folder };
         };
         match pet_content::load(&folder) {

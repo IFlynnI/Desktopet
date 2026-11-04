@@ -1,6 +1,7 @@
 //! Tests that show things on screen but send no input: no keys, no mouse, no screenshots. The owner starts them with
 //! `cargo e2e-quiet` and can keep working meanwhile. The tray is driven with the messages Windows sends it.
 
+use std::fs;
 use std::panic::{self, AssertUnwindSafe};
 use std::thread;
 use std::time::Duration;
@@ -17,8 +18,8 @@ use windows::core::w;
 
 use crate::harness::{
     BROKEN_FIELDS, FailWhen, HotkeyTaken, Packs, PetProcess, Relaunched, StartupListGuard,
-    assert_cursor_is_at, cursor_position, make_dpi_aware, read_startup_entry, wait_until,
-    work_area, write_startup_entry,
+    assert_cursor_is_at, break_manifest, cursor_position, make_dpi_aware, read_startup_entry,
+    wait_until, work_area, write_startup_entry,
 };
 use crate::metrics::{GpuUse, MAX_HIDDEN_CPU_PERCENT, cpu_percent_of_one_core};
 
@@ -409,6 +410,76 @@ fn given_the_override_names_another_packs_folder_when_launching_then_the_app_loo
     // Then
     assert!(logged, "log: {}", data.log());
     assert!(data.log().contains("other-packs"), "log: {}", data.log());
+}
+
+/// How long a saved edit takes to show: the app waits 250 ms for the save to settle, then reads the Pack again.
+const RELOAD: Duration = Duration::from_secs(5);
+
+#[test]
+fn given_a_running_pet_when_its_pack_is_edited_then_the_log_says_the_edited_pack_is_in_use() {
+    // Given
+    let pet = PetProcess::launch();
+    let data = pet.data();
+    let started = wait_until(RELOAD, || {
+        data.log().contains("Using the Pack \"Placeholder dragon\"")
+    });
+    assert!(started, "log: {}", data.log());
+
+    // When: the name changes, so the reload can't be mistaken for the start
+    let manifest = data.pack_folder().join("manifest.toml");
+    let text = fs::read_to_string(&manifest).expect("read the manifest");
+    let edited = text.replace("name = \"Placeholder dragon\"", "name = \"Edited dragon\"");
+    assert_ne!(
+        edited, text,
+        "the placeholder manifest changed, so update this"
+    );
+    fs::write(&manifest, edited).expect("write the edited manifest");
+
+    // Then
+    let reloaded = wait_until(RELOAD, || {
+        data.log().contains("Reloaded the Pack \"Edited dragon\"")
+    });
+    assert!(reloaded, "log: {}", data.log());
+    assert!(pet.is_shown());
+}
+
+#[test]
+fn given_a_running_pet_when_its_manifest_is_broken_then_every_error_is_logged_and_the_pet_keeps_its_pack_until_it_is_fixed()
+ {
+    // Given
+    let pet = PetProcess::launch();
+    let data = pet.data();
+    let started = wait_until(RELOAD, || {
+        data.log().contains("Using the Pack \"Placeholder dragon\"")
+    });
+    assert!(started, "log: {}", data.log());
+    let manifest = data.pack_folder().join("manifest.toml");
+    let good = fs::read_to_string(&manifest).expect("read the manifest");
+
+    // When
+    break_manifest(&data.pack_folder());
+    let logged = wait_until(RELOAD, || {
+        BROKEN_FIELDS.iter().all(|field| data.log().contains(field))
+    });
+
+    // Then: still the old Pack, and still running
+    assert!(logged, "log: {}", data.log());
+    assert!(
+        !data.log().contains("Reloaded the Pack"),
+        "log: {}",
+        data.log()
+    );
+    assert!(pet.is_shown());
+
+    // When: fixed again, so the watching went on after the broken edit
+    fs::write(&manifest, good).expect("write the good manifest");
+
+    // Then
+    let reloaded = wait_until(RELOAD, || {
+        data.log()
+            .contains("Reloaded the Pack \"Placeholder dragon\"")
+    });
+    assert!(reloaded, "log: {}", data.log());
 }
 
 #[test]

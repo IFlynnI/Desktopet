@@ -8,6 +8,7 @@ use std::time::Duration;
 use bevy_app::{App, FixedUpdate, TaskPoolPlugin, Update};
 use bevy_ecs::prelude::*;
 use bevy_time::{Fixed, Time, TimePlugin, TimeUpdateStrategy};
+use pet_core::animation_clock::Playback;
 use pet_core::geometry::{Point, Rect};
 use pet_core::pack::{
     ActionDef, ActionId, Anchor, AnimationDef, AnimationId, Body, CellSize, EmoteDef, EmoteId,
@@ -15,8 +16,8 @@ use pet_core::pack::{
 };
 use pet_core::placement::Facing;
 use pet_sim::{
-    AnimationClock, CurrentPack, EmoteClock, EmoteFrame, EmoteRequest, Faces, Hidden, Pet, Phase,
-    PlayingEmote, Position, ShownEmote, ShownFrame, SimPlugin,
+    AnimationClock, CurrentPack, EmoteClock, EmoteFrame, EmoteRequest, Faces, Hidden, PackReloaded,
+    Pet, Phase, PlayingEmote, Position, ShownEmote, ShownFrame, SimPlugin, replace_pack,
 };
 
 const WORK_AREA: Rect = Rect {
@@ -869,4 +870,327 @@ fn given_a_pack_without_emotes_when_an_emote_is_shown_then_none_shows() {
     // Then
     assert_eq!(pet::<ShownEmote>(&mut app), ShownEmote(None));
     assert_eq!(pet::<EmoteClock>(&mut app), EmoteClock(None));
+}
+
+/// The test Pack after an edit: "hatchling" is now the first Form, with a new first Animation, so its ids have all
+/// moved. Its default Action is "idle", its second, which plays 200 ms three times. It starts as an "egg".
+fn edited_pack() -> PackDefinition {
+    let hatchling = form(
+        "hatchling",
+        vec![action("wave", 0), action("idle", 1)],
+        vec![
+            animation("wave", vec![ms(100)]),
+            animation("idle", vec![ms(200), ms(200), ms(200)]),
+        ],
+    );
+    let egg = form(
+        "egg",
+        vec![action("idle", 0)],
+        vec![animation("idle", vec![ms(500)])],
+    );
+    PackDefinition {
+        name: "Edited".to_owned(),
+        starting_form: FormId(1),
+        forms: vec![hatchling, egg],
+        emotes: Vec::new(),
+        hit_mask_threshold: 128,
+    }
+}
+
+/// A Pack with no "hatchling": an "egg", then an "adult" it starts as, whose default Action plays 300 ms.
+fn pack_without_hatchling() -> PackDefinition {
+    let egg = form(
+        "egg",
+        vec![action("idle", 0)],
+        vec![animation("idle", vec![ms(500)])],
+    );
+    let adult = form(
+        "adult",
+        vec![action("idle", 0)],
+        vec![animation("idle", vec![ms(300)])],
+    );
+    PackDefinition {
+        name: "Grown up".to_owned(),
+        starting_form: FormId(1),
+        forms: vec![egg, adult],
+        emotes: Vec::new(),
+        hit_mask_threshold: 128,
+    }
+}
+
+/// Swaps the Pack between updates, as the app does when an edited Pack has loaded.
+fn replace(app: &mut App, pack: PackDefinition) {
+    replace_pack(app.world_mut(), Arc::new(pack));
+}
+
+#[derive(Resource, Default)]
+struct Reloads(usize);
+
+fn count_reloads(mut reloads: MessageReader<PackReloaded>, mut count: ResMut<Reloads>) {
+    count.0 += reloads.read().count();
+}
+
+/// The simulation, counting the `PackReloaded` messages a system in each tick reads.
+fn counting_reloads() -> App {
+    sim_with(Some(pack()), |app| {
+        app.init_resource::<Reloads>()
+            .add_systems(FixedUpdate, count_reloads.in_set(Phase::Sense));
+    })
+}
+
+fn reloads(app: &App) -> usize {
+    app.world().resource::<Reloads>().0
+}
+
+#[test]
+fn given_a_pet_moved_and_turned_when_the_pack_is_replaced_then_it_keeps_its_position_and_facing() {
+    // Given
+    let mut app = sim();
+    let away = Position(Point { x: 321, y: 456 });
+    let world = app.world_mut();
+    let entity = world
+        .query_filtered::<Entity, With<Pet>>()
+        .single(world)
+        .unwrap();
+    world
+        .entity_mut(entity)
+        .insert((away, Faces(Facing::Mirrored)));
+
+    // When
+    replace(&mut app, edited_pack());
+    ticks(&mut app, 2);
+
+    // Then
+    assert_eq!(pet::<Position>(&mut app), away);
+    assert_eq!(pet::<Faces>(&mut app), Faces(Facing::Mirrored));
+}
+
+#[test]
+fn given_a_pet_in_a_form_the_edited_pack_still_has_when_the_pack_is_replaced_then_it_stays_in_that_form_by_name()
+ {
+    // Given: a "hatchling", the old Pack's second Form
+    let mut app = sim();
+    ticks(&mut app, 4);
+
+    // When: the edited Pack's "hatchling" is its first Form, and it starts as an "egg"
+    replace(&mut app, edited_pack());
+
+    // Then: on the first Frame of that Form's default Action, "idle", now its second Animation
+    assert_eq!(
+        pet::<ShownFrame>(&mut app),
+        ShownFrame {
+            form: FormId(0),
+            animation: AnimationId(1),
+            frame: 0
+        }
+    );
+    assert_eq!(app.world().resource::<CurrentPack>().0.name, "Edited");
+}
+
+#[test]
+fn given_a_pet_in_a_form_the_edited_pack_no_longer_has_when_the_pack_is_replaced_then_it_takes_the_starting_form()
+ {
+    // Given: a "hatchling"
+    let mut app = sim();
+
+    // When
+    replace(&mut app, pack_without_hatchling());
+
+    // Then: an "adult", the new starting Form
+    assert_eq!(
+        pet::<ShownFrame>(&mut app),
+        ShownFrame {
+            form: FormId(1),
+            animation: AnimationId(0),
+            frame: 0
+        }
+    );
+}
+
+#[test]
+fn given_a_pet_part_way_through_its_animation_when_the_pack_is_replaced_then_its_clock_starts_again_on_the_default_action()
+ {
+    // Given: 4 ticks in, on the second Frame of "sleep"
+    let mut app = sim_with(Some(pack()), |app| {
+        app.init_resource::<Log<ShownFrame>>()
+            .add_systems(FixedUpdate, record_frame.in_set(Phase::Present));
+    });
+    ticks(&mut app, 4);
+    assert_eq!(pet::<ShownFrame>(&mut app).frame, 1);
+
+    // When: the edited "idle" is three Frames of exactly 6 ticks
+    replace(&mut app, edited_pack());
+    let on_swapping = pet::<AnimationClock>(&mut app);
+    app.world_mut().resource_mut::<Log<ShownFrame>>().0.clear();
+    ticks(&mut app, 13);
+
+    // Then: the swap shows Frame 0 before any tick, as a Pet appearing does, so it has 5 more ticks of it
+    assert_eq!(
+        on_swapping,
+        AnimationClock {
+            form: FormId(0),
+            animation: AnimationId(1),
+            playback: Playback::Looping,
+            played_ticks: 0
+        }
+    );
+    let log = &app.world().resource::<Log<ShownFrame>>().0;
+    assert_eq!(
+        runs(log.iter().map(|shown| shown.frame)),
+        [(0, 5), (1, 6), (2, 2)]
+    );
+}
+
+#[test]
+fn given_a_pet_showing_an_emote_when_the_pack_is_replaced_by_one_with_the_same_emotes_then_the_emote_ends()
+ {
+    // Given: "tired" on its second Frame
+    let mut app = emoting();
+    show_emote(&mut app, TIRED);
+    ticks(&mut app, 5);
+    assert_eq!(pet::<ShownEmote>(&mut app), shown(TIRED, 1));
+
+    // When
+    replace(&mut app, pack_with_emotes());
+    let on_swapping = pet::<ShownEmote>(&mut app);
+    ticks(&mut app, 3);
+
+    // Then
+    assert_eq!(on_swapping, ShownEmote(None));
+    assert_eq!(emote_frames(&app, TIRED)[5..], [None, None, None]);
+    assert_eq!(pet::<EmoteClock>(&mut app), EmoteClock(None));
+}
+
+#[test]
+fn given_an_emote_requested_against_the_old_pack_when_the_pack_is_replaced_before_a_tick_reads_it_then_it_is_dropped()
+ {
+    // Given: the request names the old Pack's Emote by its number, which may be another Emote in the new Pack
+    let mut app = emoting();
+    show_emote(&mut app, LOVE);
+
+    // When
+    replace(&mut app, pack_with_emotes());
+    ticks(&mut app, 3);
+
+    // Then
+    assert_eq!(emote_frames(&app, LOVE), [None, None, None]);
+}
+
+#[test]
+fn given_a_shown_pet_when_the_pack_is_replaced_then_a_tick_reads_pack_reloaded_exactly_once() {
+    // Given
+    let mut app = counting_reloads();
+
+    // When
+    replace(&mut app, edited_pack());
+    ticks(&mut app, 10);
+
+    // Then
+    assert_eq!(reloads(&app), 1);
+}
+
+#[test]
+fn given_a_hidden_pet_when_the_pack_is_replaced_then_it_is_swapped_at_once_and_ticks_read_pack_reloaded_once_after_waking()
+ {
+    // Given
+    let mut app = counting_reloads();
+    ticks(&mut app, 4);
+    hide(&mut app);
+
+    // When: replaced while Hidden, an hour passes, then it's shown again for 10 ticks
+    replace(&mut app, edited_pack());
+    let swapped = pet::<ShownFrame>(&mut app);
+    for _ in 0..360 {
+        step(&mut app, Duration::from_secs(10));
+    }
+    let while_hidden = (reloads(&app), pet::<AnimationClock>(&mut app).played_ticks);
+    app.world_mut().resource_mut::<Hidden>().0 = false;
+    step(&mut app, Duration::from_secs(10));
+    ticks(&mut app, 10);
+
+    // Then: no tick ran while Hidden, so the message waited for the first one after
+    assert_eq!(swapped.form, FormId(0));
+    assert_eq!(while_hidden, (0, 0));
+    assert_eq!(reloads(&app), 1);
+    assert_eq!(pet::<AnimationClock>(&mut app).played_ticks, 10);
+}
+
+#[test]
+fn given_a_pet_drawn_from_the_old_pack_when_an_identical_pack_replaces_it_then_its_shown_frame_counts_as_changed()
+ {
+    // Given: every number in the new Pack is the same, so only the swap itself can tell readers to draw again
+    #[derive(Resource, Default)]
+    struct Changes(usize);
+    let mut app = sim_with(Some(pack()), |app| {
+        app.init_resource::<Changes>().add_systems(
+            Update,
+            |pets: Query<(), (With<Pet>, Changed<ShownFrame>)>, mut changes: ResMut<Changes>| {
+                changes.0 += pets.iter().count();
+            },
+        );
+    });
+    step(&mut app, Duration::ZERO);
+    let before = app.world().resource::<Changes>().0;
+
+    // When
+    replace(&mut app, pack());
+    step(&mut app, Duration::ZERO);
+
+    // Then
+    assert_eq!(app.world().resource::<Changes>().0, before + 1);
+}
+
+#[test]
+fn given_a_pet_deep_in_a_big_pack_when_a_pack_with_one_frame_and_no_emotes_replaces_it_then_ticks_carry_on_without_panicking()
+ {
+    // Given: a "hatchling" on the second Frame of its second Animation, playing the fifth of five Emotes
+    let mut app = emoting();
+    show_emote(&mut app, GLANCE);
+    ticks(&mut app, 4);
+    assert_eq!(pet::<ShownFrame>(&mut app).frame, 1);
+    assert!(pet::<ShownEmote>(&mut app).0.is_some());
+    let tiny = PackDefinition {
+        name: "Tiny".to_owned(),
+        starting_form: FormId(0),
+        forms: vec![form(
+            "egg",
+            vec![action("idle", 0)],
+            vec![animation("idle", vec![ms(34)])],
+        )],
+        emotes: Vec::new(),
+        hit_mask_threshold: 128,
+    };
+
+    // When: the old Pack's Emote is asked for again, which this one doesn't have
+    replace(&mut app, tiny);
+    show_emote(&mut app, GLANCE);
+    ticks(&mut app, 30);
+
+    // Then
+    assert_eq!(
+        pet::<ShownFrame>(&mut app),
+        ShownFrame {
+            form: FormId(0),
+            animation: AnimationId(0),
+            frame: 0
+        }
+    );
+    assert_eq!(pet::<ShownEmote>(&mut app), ShownEmote(None));
+}
+
+#[test]
+fn given_no_pack_when_a_pack_arrives_then_the_pet_appears_at_home_in_its_starting_form() {
+    // Given: the Pack was broken when the app started
+    let mut app = sim_with(None, |_| {});
+
+    // When
+    replace(&mut app, edited_pack());
+    step(&mut app, Duration::ZERO);
+
+    // Then: an "egg"
+    assert_eq!(
+        pet::<Position>(&mut app),
+        Position(Point { x: 600, y: 800 })
+    );
+    assert_eq!(pet::<ShownFrame>(&mut app).form, FormId(1));
 }

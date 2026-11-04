@@ -16,6 +16,9 @@ cargo run -p pet-app
 To use another folder of Packs, set `DESKTOP_PET_PACKS` to it. With no usable Pack there's no Pet, the reasons are in
 `%LOCALAPPDATA%\DesktopPet\desktop-pet.log`, and the tray icon still works so you can quit.
 
+Edit the Pack while the app runs, and the Pet changes about a quarter of a second after each save. An edit with
+mistakes changes nothing, and the log lists each one.
+
 To check a Pack the way the app does, listing every error:
 
 ```bash

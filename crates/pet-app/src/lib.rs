@@ -5,7 +5,8 @@ mod pack;
 mod relaunch;
 
 pub use engine::{
-    PackAtStartup, PetRenderPlugin, RENDER_FAILURE_EXIT, base_plugins, pet_camera, render_plugin,
+    PackAtStartup, PackEdited, PetRenderPlugin, RENDER_FAILURE_EXIT, base_plugins, pet_camera,
+    render_plugin,
 };
 pub use pack::StartingPack;
 
@@ -31,12 +32,15 @@ pub fn run(setup: impl FnOnce(&mut App)) -> AppExit {
     // Only the first Pet reads the Pack. A second launch exits above, without touching the Packs or the log.
     let packs_folder =
         pack::packs_folder(env::var_os(PACKS_OVERRIDE), pet_platform::packs_folder());
-    let pack = StartingPack::load(packs_folder);
+    let chosen = packs_folder.as_deref().and_then(pet_content::discover);
+    // Watched before it's read, so an edit made while the app starts is still seen.
+    let watching = engine::Watching::start(chosen.as_deref());
+    let pack = StartingPack::load_chosen(packs_folder, chosen);
 
     let manual_hide = Arc::new(AtomicBool::new(launch.manual_hide));
     let start = Presence::with_manual_hide(launch.manual_hide);
     let work_area = pet_platform::home_work_area();
-    let mut app = engine::app(work_area, start, manual_hide.clone(), pack);
+    let mut app = engine::app(work_area, start, manual_hide.clone(), pack, watching);
     setup(&mut app);
     let exit = app.run();
 

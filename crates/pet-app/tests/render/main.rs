@@ -8,6 +8,7 @@ mod harness;
 use std::path::Path;
 
 use bevy::prelude::With;
+use pet_app::PackEdited;
 use pet_core::geometry::Point;
 use pet_core::pack::EmoteId;
 use pet_core::placement::Facing;
@@ -291,4 +292,29 @@ fn given_a_crouched_pet_whose_art_reaches_above_its_body_when_it_shows_an_emote_
     // Then: where the Emote's "cc..." meets the Pet's ".aa...", the Emote's colour shows
     assert_eq!(got.pixel(20, 16), [60, 200, 120, 255]);
     assert_drawn(&got, &want);
+}
+
+#[test]
+fn given_a_drawn_pet_when_its_pack_is_edited_with_new_art_then_every_pixel_is_the_new_art() {
+    // Given: on its first Frame at home, with its top-left at (18, 16). The edit swaps the art's two colours and
+    // changes nothing else, so the Pet is on the same Frame of the same Animation before and after.
+    let (folder, pack) = fixture::load("reload");
+    let (_, edited) = fixture::load_recoloured("reload-edited");
+    let mut offscreen = Offscreen::start(folder.clone(), pack, 40, 24);
+    let before = offscreen.capture();
+
+    // When
+    offscreen.app.world_mut().write_message(PackEdited {
+        folder,
+        loaded: Ok(edited),
+    });
+    let after = offscreen.capture();
+
+    // Then
+    let mut want_before = Picture::clear(40, 24);
+    want_before.draw(&fixture::frame(0), 18, 16, SCALE, false);
+    let mut want_after = Picture::clear(40, 24);
+    want_after.draw(&fixture::recoloured_frame(0), 18, 16, SCALE, false);
+    assert_drawn(&before, &want_before);
+    assert_drawn(&after, &want_after);
 }
