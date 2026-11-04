@@ -10,13 +10,16 @@
 //! - A check every 2 s, the one poll here. Windows promises neither of the others fires for every change, a stale Hidden
 //!   looks like a crash, and each foreground change measured with no event reached only this check.
 //!
+//! The first two come from outside this app, through `Signals`, so the tests can stand in their own and stay deaf to
+//! the owner switching windows while they run. The rules for the timer are `FullscreenChecks` in `pet-core`.
+//!
 //! This reads the foreground window's geometry and whether it declares itself never fullscreen, and never its title
 //! (SEN-01, SEN-02).
 
 use std::cell::{Cell, OnceCell};
 use std::time::Duration;
 
-use pet_core::fullscreen::{ForegroundWindow, FullscreenWatch, Snapshot};
+use pet_core::fullscreen::{ForegroundWindow, FullscreenChecks, Snapshot};
 use pet_core::geometry::Rect;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::ClientToScreen;
@@ -47,32 +50,57 @@ const RE_CHECK_TIMER: usize = 2;
 
 const RE_CHECK: Duration = Duration::from_secs(2);
 
+/// Where the news that something outside this app may have changed comes from.
+trait Signals {
+    /// Starts sending it to `window`'s watcher, on this thread. Dropping the result stops it.
+    fn listen(window: HWND) -> Self;
+
+    /// Sets up again what a restarted Explorer has forgotten. This takes no `self`, because the window's callback has
+    /// no way to reach the value `listen` returned.
+    fn listen_again(window: HWND);
+}
+
 struct Watcher {
     window: HWND,
     /// Explorer's "I've just restarted" broadcast. A new Explorer has forgotten every appbar.
     taskbar_created: u32,
-    watch: Cell<FullscreenWatch>,
-    check_pending: Cell<bool>,
+    listen_again: fn(HWND),
+    checks: Cell<FullscreenChecks>,
     read: Box<dyn Fn() -> Snapshot>,
     report: Box<dyn Fn(ShellEvent)>,
 }
 
 impl Watcher {
+    fn change_checks<T>(&self, change: impl FnOnce(&mut FullscreenChecks) -> T) -> T {
+        let mut checks = self.checks.get();
+        let result = change(&mut checks);
+        self.checks.set(checks);
+        result
+    }
+
     /// Starts or restarts the wait before a check, so a burst of changes causes one.
     fn check_soon(&self) {
-        let delay = self.watch.get().delay().as_millis() as u32;
-        self.check_pending.set(true);
+        let wait = self.change_checks(FullscreenChecks::something_changed);
+        self.wait(wait);
+    }
+
+    fn wait(&self, wait: Duration) {
         // SAFETY: takes plain values, and `window` belongs to this thread.
-        unsafe { SetTimer(Some(self.window), CHECK_SOON_TIMER, delay, None) };
+        unsafe {
+            SetTimer(
+                Some(self.window),
+                CHECK_SOON_TIMER,
+                wait.as_millis() as u32,
+                None,
+            )
+        };
     }
 
     fn check(&self) {
-        self.check_pending.set(false);
-        let mut watch = self.watch.get();
+        // Before the read, so a change that arrives while reading keeps the wait it starts.
+        self.change_checks(FullscreenChecks::wait_ended);
         let snapshot = (self.read)();
-        let change = watch.update(&snapshot);
-        self.watch.set(watch);
-        if let Some(fullscreen) = change {
+        if let Some(fullscreen) = self.change_checks(|checks| checks.check(&snapshot)) {
             (self.report)(ShellEvent::FullscreenChanged(fullscreen));
         }
     }
@@ -83,9 +111,8 @@ impl Watcher {
             // SAFETY: takes plain values, and `window` belongs to this thread.
             let _ = unsafe { KillTimer(Some(self.window), CHECK_SOON_TIMER) };
             self.check();
-        } else if !self.check_pending.get() {
-            // Restarting a wait that's already running would stop a return delay longer than this tick from ever ending.
-            self.check_soon();
+        } else if let Some(wait) = self.change_checks(FullscreenChecks::re_check_due) {
+            self.wait(wait);
         }
     }
 }
@@ -132,10 +159,10 @@ unsafe extern "system" fn window_proc(
     match message {
         SHELL_MESSAGE => with_watcher(Watcher::check_soon),
         WM_TIMER => with_watcher(|watcher| watcher.on_timer(wparam.0)),
-        message if is_taskbar_created(message) => {
-            register_appbar(hwnd);
-            with_watcher(Watcher::check_soon);
-        }
+        message if is_taskbar_created(message) => with_watcher(|watcher| {
+            (watcher.listen_again)(hwnd);
+            watcher.check_soon();
+        }),
         // SAFETY: passes on exactly what Windows gave this callback.
         _ => return unsafe { DefWindowProcW(hwnd, message, wparam, lparam) },
     }
@@ -197,6 +224,28 @@ impl Drop for ForegroundHook {
     }
 }
 
+/// What the shell and the desktop say: the appbar hears the shell's message, and the hook hears the foreground window
+/// change anywhere on the desktop. Dropping this unhooks first.
+pub struct DesktopSignals {
+    _hook: ForegroundHook,
+    _appbar: AppBar,
+}
+
+impl Signals for DesktopSignals {
+    fn listen(window: HWND) -> Self {
+        register_appbar(window);
+        Self {
+            _hook: ForegroundHook::install(),
+            _appbar: AppBar(window),
+        }
+    }
+
+    /// Registering twice does nothing, so this is safe whatever Explorer remembers.
+    fn listen_again(window: HWND) {
+        register_appbar(window);
+    }
+}
+
 /// A window that's never shown. It has to be a real top-level window, because a message-only window hears no broadcasts,
 /// and the one that says Explorer has restarted is a broadcast.
 struct HiddenWindow(HWND);
@@ -241,10 +290,9 @@ impl Drop for HiddenWindow {
     }
 }
 
-/// Everything that keeps the watching going. Dropping this on the thread that started it stops it, hook first.
-pub struct Foreground {
-    _hook: ForegroundHook,
-    _appbar: AppBar,
+/// Everything that keeps the watching going. Dropping this on the thread that started it stops it, signals first.
+pub struct Foreground<S = DesktopSignals> {
+    _signals: S,
     _window: HiddenWindow,
 }
 
@@ -256,6 +304,19 @@ impl Foreground {
         report: impl Fn(ShellEvent) + 'static,
         return_delay: Duration,
     ) -> Self {
+        Self::start_with(read, report, return_delay)
+    }
+}
+
+impl<S> Foreground<S> {
+    fn start_with(
+        read: impl Fn() -> Snapshot + 'static,
+        report: impl Fn(ShellEvent) + 'static,
+        return_delay: Duration,
+    ) -> Self
+    where
+        S: Signals,
+    {
         let window = HiddenWindow::create();
         // SAFETY: the name is a static string.
         let taskbar_created = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
@@ -264,24 +325,22 @@ impl Foreground {
                 watcher.set(Watcher {
                     window: window.0,
                     taskbar_created,
-                    watch: Cell::new(FullscreenWatch::new(return_delay)),
-                    check_pending: Cell::new(false),
+                    listen_again: S::listen_again,
+                    checks: Cell::new(FullscreenChecks::new(return_delay)),
                     read: Box::new(read),
                     report: Box::new(report),
                 })
             })
             .ok()
             .expect("one thread runs one watcher");
-        register_appbar(window.0);
-        let hook = ForegroundHook::install();
+        let signals = S::listen(window.0);
         let re_check = RE_CHECK.as_millis() as u32;
         // SAFETY: takes plain values, and the window belongs to this thread.
         unsafe { SetTimer(Some(window.0), RE_CHECK_TIMER, re_check, None) };
         // Everything that can notice a change is in place by now, so none falls between this check and the next.
         with_watcher(Watcher::check);
         Self {
-            _hook: hook,
-            _appbar: AppBar(window.0),
+            _signals: signals,
             _window: window,
         }
     }
@@ -384,6 +443,18 @@ mod tests {
         }
     }
 
+    /// Signals from the test alone. It posts the shell's message itself, and with no hook and no appbar, the owner
+    /// switching windows or going fullscreen can't move its timing. Only an Explorer restart still reaches the window.
+    struct TestSignals;
+
+    impl Signals for TestSignals {
+        fn listen(_window: HWND) -> Self {
+            Self
+        }
+
+        fn listen_again(_window: HWND) {}
+    }
+
     /// A `Foreground` on a message loop of its own, with a made-up foreground window.
     struct Running {
         window: isize,
@@ -396,6 +467,15 @@ mod tests {
 
     impl Running {
         fn start(fullscreen: bool, return_delay: Duration) -> Self {
+            Self::start_with::<TestSignals>(fullscreen, return_delay)
+        }
+
+        /// For the few tests of the real signals. They only check what something unrelated can't undo.
+        fn start_with_desktop_signals(fullscreen: bool, return_delay: Duration) -> Self {
+            Self::start_with::<DesktopSignals>(fullscreen, return_delay)
+        }
+
+        fn start_with<S: Signals + 'static>(fullscreen: bool, return_delay: Duration) -> Self {
             let fullscreen = Arc::new(AtomicBool::new(fullscreen));
             let reads = Arc::new(AtomicUsize::new(0));
             let (sender, events) = mpsc::channel();
@@ -407,7 +487,7 @@ mod tests {
                     snapshot(read_fullscreen.load(Ordering::SeqCst))
                 };
                 let report = move |event| sender.send(event).expect("the test is listening");
-                let foreground = Foreground::start(read, report, return_delay);
+                let foreground = Foreground::<S>::start_with(read, report, return_delay);
                 let window = foreground._window.0.0 as isize;
                 // SAFETY: takes no arguments.
                 let thread_id = unsafe { GetCurrentThreadId() };
@@ -536,8 +616,8 @@ mod tests {
         }
         thread::sleep(Duration::from_millis(500));
 
-        // Then: the hook is real, so a window changing elsewhere could add a read, but never one per trigger
-        assert!(running.reads.load(Ordering::SeqCst) < 5);
+        // Then
+        assert_eq!(running.reads.load(Ordering::SeqCst), 2);
     }
 
     #[test]
@@ -601,9 +681,51 @@ mod tests {
     }
 
     #[test]
+    fn given_the_desktop_signals_when_started_on_this_thread_then_windows_accepts_the_foreground_hook_and_the_appbar()
+     {
+        // Given / When: whether Windows then delivers the hook's events is left to the e2e tests
+        let foreground = Foreground::start(|| snapshot(false), |_| {}, RETURN_DELAY);
+
+        // Then: registering again fails only for a window that's already registered
+        assert!(!foreground._signals._hook.0.is_invalid());
+        let mut appbar = APPBARDATA {
+            cbSize: size_of::<APPBARDATA>() as u32,
+            hWnd: foreground._window.0,
+            ..Default::default()
+        };
+        // SAFETY: `appbar` is a live local that Windows reads during the call.
+        assert_eq!(unsafe { SHAppBarMessage(ABM_NEW, &mut appbar) }, 0);
+    }
+
+    #[test]
+    fn given_the_test_signals_when_explorer_announces_a_restart_then_no_real_appbar_is_registered()
+    {
+        // Given
+        let running = Running::start(false, RETURN_DELAY);
+
+        // When
+        // SAFETY: the name is a static string.
+        let taskbar_created = unsafe { RegisterWindowMessageW(w!("TaskbarCreated")) };
+        // SAFETY: takes plain values, and this returns once the watcher's thread has handled it.
+        unsafe { SendMessageW(running.window(), taskbar_created, None, None) };
+
+        // Then: registering succeeds only for a window that isn't registered yet, and this one is removed again
+        let mut appbar = APPBARDATA {
+            cbSize: size_of::<APPBARDATA>() as u32,
+            hWnd: running.window(),
+            ..Default::default()
+        };
+        // SAFETY: `appbar` is a live local that Windows reads during the call.
+        let registered_now = unsafe { SHAppBarMessage(ABM_NEW, &mut appbar) };
+        // SAFETY: as above.
+        unsafe { SHAppBarMessage(ABM_REMOVE, &mut appbar) };
+        assert_ne!(registered_now, 0);
+    }
+
+    #[test]
     fn given_explorer_restarted_when_it_announces_that_then_the_appbar_is_registered_again() {
         // Given: Explorer has forgotten the appbar
-        let running = Running::start(false, RETURN_DELAY);
+        let running = Running::start_with_desktop_signals(false, RETURN_DELAY);
         let mut appbar = APPBARDATA {
             cbSize: size_of::<APPBARDATA>() as u32,
             hWnd: running.window(),
