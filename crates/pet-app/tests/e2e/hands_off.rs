@@ -1,4 +1,5 @@
-//! Tests that need the real mouse, or that fill the screen and take the foreground. Keep your hands off while they run.
+//! Tests that send real input, with the mouse or the keyboard, or that read the screen, fill it and take the foreground.
+//! The owner starts them with `cargo e2e` and keeps their hands off while they run.
 
 use std::thread;
 use std::time::Duration;
@@ -6,8 +7,8 @@ use std::time::Duration;
 use pet_core::geometry::{Point, Rect};
 
 use crate::harness::{
-    CursorGuard, PetProcess, click, foreground_window, make_dpi_aware, monitor_area, wait_until,
-    window_under_cursor_at, work_area,
+    CursorGuard, Packs, PetProcess, click, foreground_window, make_dpi_aware, monitor_area,
+    press_hotkey, wait_until, window_under_cursor_at, work_area,
 };
 use crate::metrics::{GpuUse, MAX_HIDDEN_CPU_PERCENT, cpu_percent_of_one_core};
 use crate::screen::{Expected, PetView};
@@ -335,4 +336,47 @@ fn given_an_auto_hide_when_measured_then_the_pet_uses_next_to_no_cpu_and_no_gpu(
         "{cpu_hidden:.3}% of one core"
     );
     assert_eq!(gpu_hidden, 0.0);
+}
+
+#[test]
+fn given_a_shown_pet_when_pressing_the_hotkey_then_it_hides_and_a_second_press_shows_it() {
+    // Given
+    let pet = PetProcess::launch();
+
+    // When
+    press_hotkey();
+
+    // Then
+    assert!(pet.wait_until_hidden(), "the first press hides the Overlay");
+
+    // When
+    press_hotkey();
+
+    // Then
+    assert!(pet.wait_until_shown(), "the second press shows it again");
+}
+
+#[test]
+fn given_a_broken_pack_when_launching_then_nothing_is_drawn_over_the_window_behind() {
+    // Given: the same window behind as `scene`, where a good Pack's Pet does appear
+    make_dpi_aware();
+    let _cursor = CursorGuard::new();
+    let corner = work_area().bottom_centre(400, 300);
+    let area = Rect {
+        left: corner.x,
+        top: corner.y,
+        right: corner.x + 400,
+        bottom: corner.y + 300,
+    };
+    let window = TestWindow::open(area);
+    click(away_from_the_pet(area), &[window.hwnd()]);
+    window.drop_to_normal();
+
+    // When
+    let pet = PetProcess::launch_with(Packs::Broken);
+    thread::sleep(Duration::from_secs(2));
+
+    // Then
+    assert!(pet.is_shown(), "the empty Overlay is up");
+    assert_eq!(PetView::observe(area).pet_pixels(), 0);
 }

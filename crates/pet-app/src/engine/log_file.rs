@@ -1,4 +1,4 @@
-//! Warnings and errors go to a small file. The release build has no console, so this is the only record of a failure.
+//! Warnings, errors and a few lines worth a record go to a small file. The release build has no console, so this is the only record of a failure.
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
@@ -8,10 +8,21 @@ use std::sync::Mutex;
 use bevy::app::App;
 use bevy::log::BoxedLayer;
 use bevy::log::tracing_subscriber::Layer;
-use bevy::log::tracing_subscriber::filter::LevelFilter;
+use bevy::log::tracing_subscriber::filter::{LevelFilter, Targets};
 use bevy::log::tracing_subscriber::fmt;
 
 const START_FRESH_ABOVE_BYTES: u64 = 1024 * 1024;
+
+/// Lines logged with this target reach the file at info level too. It's for the few things worth a record even when
+/// nothing is wrong, such as which Pack was chosen. Every other line needs to be a warning or an error.
+pub const RECORD: &str = "desktop_pet::record";
+
+/// Which lines the file keeps.
+fn file_filter() -> Targets {
+    Targets::new()
+        .with_default(LevelFilter::WARN)
+        .with_target(RECORD, LevelFilter::INFO)
+}
 
 /// Keeps adding to the file until it passes the limit, then starts fresh the next time the app starts.
 fn open(path: &Path) -> io::Result<File> {
@@ -35,7 +46,7 @@ pub fn layer(_app: &mut App) -> Option<BoxedLayer> {
     let layer = fmt::layer()
         .with_ansi(false)
         .with_writer(Mutex::new(file))
-        .with_filter(LevelFilter::WARN);
+        .with_filter(file_filter());
     Some(Box::new(layer))
 }
 
@@ -44,6 +55,8 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::{env, process};
+
+    use bevy::log::Level;
 
     use super::*;
 
@@ -70,6 +83,27 @@ mod tests {
     fn fill(path: &Path, bytes: u64) {
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, vec![b'x'; bytes as usize]).unwrap();
+    }
+
+    #[test]
+    fn given_the_files_filter_when_lines_arrive_then_it_keeps_warnings_and_the_record_but_no_other_info()
+     {
+        // Given
+        let filter = file_filter();
+
+        // When
+        let kept = [
+            (RECORD, Level::INFO),
+            ("wgpu_core::device", Level::WARN),
+            ("pet_app::engine::pack_assets", Level::ERROR),
+            ("pet_app::engine::pack_assets", Level::INFO),
+            ("bevy_render::renderer", Level::INFO),
+            (RECORD, Level::DEBUG),
+        ]
+        .map(|(target, level)| filter.would_enable(target, &level));
+
+        // Then
+        assert_eq!(kept, [true, true, true, false, false, false]);
     }
 
     #[test]

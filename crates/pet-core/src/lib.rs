@@ -4,5 +4,6 @@
 pub mod fullscreen;
 pub mod geometry;
 pub mod hit_mask;
+pub mod pack;
 pub mod presence;
 pub mod relaunch;

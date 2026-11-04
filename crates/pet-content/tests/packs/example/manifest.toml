@@ -1,0 +1,37 @@
+# The example from docs/proposals/item-3-architecture.md, which is the Pack format's contract.
+format_version = 1
+name = "Placeholder dragon"
+starting_form = "hatchling"
+
+[forms.hatchling]
+cell = { width = 24, height = 18 }        # every Frame of this Form has this size, in art pixels
+anchor = { x = 12, y = 18 }               # where the feet meet the ground, from the cell's top-left
+body = { x = -9, y = -15, width = 18, height = 15 }   # relative to the Anchor
+default_action = "idle"
+shadow = { width = 16, colour = "#22203480" }
+
+[forms.hatchling.actions.idle]
+animation = "idle"
+
+[forms.hatchling.actions.sleep]
+animation = "sleep"
+body = { x = -10, y = -9, width = 20, height = 9 }    # curled up: a smaller Body while this Action runs
+
+[forms.hatchling.situations]
+held = "idle"
+# falling and landing have no art yet, so the default Action plays
+
+[forms.hatchling.animations.idle]
+sheet = "hatchling/idle.png"
+durations_ms = [250, 250]
+markers = [{ frame = 1, name = "footstep" }]
+
+[forms.hatchling.animations.sleep]
+sheet = "hatchling/sleep.png"
+durations_ms = [600, 300, 600]
+
+[emotes.tired]
+sheet = "emotes/tired.png"
+cell = { width = 10, height = 10 }
+durations_ms = [200, 200, 400]
+mode = "looping"                          # or "one-shot"

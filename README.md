@@ -5,8 +5,21 @@ where it's going, and the [glossary](GLOSSARY.md) for the words used here.
 
 ## Run it
 
+The Pet comes from a Pack, a folder of art and data in `%LOCALAPPDATA%\DesktopPet\packs`. The app uses the first one
+by folder name. Copy in the placeholder Pack once:
+
 ```bash
+mkdir -p "$LOCALAPPDATA/DesktopPet/packs" && cp -r content/placeholder "$LOCALAPPDATA/DesktopPet/packs/"
 cargo run -p pet-app
+```
+
+To use another folder of Packs, set `DESKTOP_PET_PACKS` to it. With no usable Pack there's no Pet, the reasons are in
+`%LOCALAPPDATA%\DesktopPet\desktop-pet.log`, and the tray icon still works so you can quit.
+
+To check a Pack the way the app does, listing every error:
+
+```bash
+cargo run -p pet-content --bin pet-pack -- validate content/placeholder
 ```
 
 Press Ctrl+Alt+P or left-click the tray icon to hide or show the Pet. To stop it, right-click the tray icon and
@@ -23,15 +36,18 @@ Fast tests have no window, GPU or mouse:
 cargo nextest run
 ```
 
-Only one Pet can run at a time, so quit yours before running the next two. Quiet tests run the real app but leave
-your mouse alone, so you can keep working:
+The next two run the real app, so they're for you to start, never something to leave running in the background.
+Only one Pet can run at a time, so quit yours first.
+
+Quiet tests show the Pet, its tray icon and the Overlay, but send no keys or mouse input and read nothing off the
+screen, so you can keep working:
 
 ```bash
 cargo e2e-quiet
 ```
 
-The full set also takes over your mouse and opens magenta windows, some filling the screen, so keep your hands off it.
-It stops with a clear message if the mouse moves:
+The full set adds tests that type the Ctrl+Alt+P hotkey, take over your mouse, read the screen and open magenta
+windows, some filling the screen, so keep your hands off it. It stops with a clear message if the mouse moves:
 
 ```bash
 cargo e2e

@@ -14,7 +14,7 @@ use pet_core::fullscreen::RETURN_DELAY;
 use pet_core::geometry::{Point, Rect};
 use pet_platform::{Platform, ShellEvent};
 
-use super::placeholder;
+use super::tray_icon;
 
 /// The Overlay's rect on screen, in physical pixels.
 #[derive(Resource, Clone, Copy)]
@@ -96,7 +96,7 @@ pub fn attach_platform(
         let _ = proxy.send_event(WinitUserEvent::WakeUp);
     });
     let window = handle.get_window_handle();
-    let tray_icon = placeholder::tray_icon_image();
+    let tray_icon = tray_icon::tray_icon_image();
     let platform = Platform::start(window, events.0.clone(), wake, tray_icon, RETURN_DELAY);
     commands.insert_resource(PlatformHandle(platform));
 }

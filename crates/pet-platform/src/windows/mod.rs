@@ -36,14 +36,20 @@ pub fn prepare_process() {
     unsafe { std::env::set_var("WGPU_DX12_PRESENTATION_SYSTEM", "Visual") };
 }
 
+/// The app's own folder for its files.
+fn app_data_folder() -> Option<PathBuf> {
+    let local_data = env::var_os("LOCALAPPDATA")?;
+    Some(PathBuf::from(local_data).join("DesktopPet"))
+}
+
 /// Where warnings and errors go. Roadmap item 6 can use the same folder for the save file.
 pub fn log_file_path() -> Option<PathBuf> {
-    let local_data = env::var_os("LOCALAPPDATA")?;
-    Some(
-        PathBuf::from(local_data)
-            .join("DesktopPet")
-            .join("desktop-pet.log"),
-    )
+    Some(app_data_folder()?.join("desktop-pet.log"))
+}
+
+/// Where the Packs are, one folder each.
+pub fn packs_folder() -> Option<PathBuf> {
+    Some(app_data_folder()?.join("packs"))
 }
 
 pub struct Platform {
@@ -86,5 +92,23 @@ impl Platform {
     /// Pauses or resumes the hit-test thread. The engine shows and hides the Overlay itself.
     pub fn set_hidden(&self, hidden: bool) {
         self.hit_test_pause.set_hidden(hidden);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn given_the_app_has_a_data_folder_when_asking_for_the_packs_folder_then_it_is_packs_next_to_the_log_file()
+     {
+        // Given
+        let log_file = log_file_path().expect("Windows sets LOCALAPPDATA");
+
+        // When
+        let packs = packs_folder();
+
+        // Then
+        assert_eq!(packs, log_file.parent().map(|folder| folder.join("packs")));
     }
 }

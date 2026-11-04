@@ -9,6 +9,7 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
+pet-content = { path = "crates/pet-content" }
 pet-core = { path = "crates/pet-core" }
 pet-platform = { path = "crates/pet-platform" }
 # Pinned exactly: Bevy ships breaking releases, so upgrades are deliberate (PRD §7.1).
@@ -27,7 +28,12 @@ bevy = { version = "=0.20.1", default-features = false, features = [
     "png",
 ] }
 log = "0.4"
+# `png`, `serde` and `toml` already come in through Bevy, so these are the versions in Cargo.lock and nothing new is
+# downloaded.
+png = "0.18.1"
 raw-window-handle = "0.6"
+serde = "1.0.229"
+toml = "1.1.8"
 tray-icon = { version = "0.26", default-features = false }
 windows = "0.62"
 

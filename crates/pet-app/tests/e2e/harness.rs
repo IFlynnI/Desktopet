@@ -1,7 +1,7 @@
 //! Launches the real exe and acts on the real desktop through Windows, the way a person would.
 
 use std::os::windows::io::AsRawHandle;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{self, Child, Command, ExitStatus};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -191,8 +191,63 @@ impl Drop for StartupListGuard {
     }
 }
 
-/// A folder of its own for the app's files, so tests never touch the owner's log. It goes when the test ends. A test
-/// is its own process, so the process ID makes this unique.
+/// What the test's own folder of Packs holds when the app starts.
+#[derive(Clone, Copy)]
+pub enum Packs {
+    /// The placeholder Pack from the repo, which is what most tests want.
+    Placeholder,
+    /// No Packs at all.
+    Empty,
+    /// The placeholder with two mistakes put in: see `BROKEN_FIELDS`.
+    Broken,
+    /// The placeholder in the usual folder, but `DESKTOP_PET_PACKS` names another folder, holding the broken one.
+    OverriddenWithBroken,
+}
+
+/// Where the mistakes in `Packs::Broken` are, as the log names them.
+pub const BROKEN_FIELDS: [&str; 2] = [
+    "forms.hatchling.default_action",
+    "forms.hatchling.animations.idle.durations_ms",
+];
+
+fn placeholder_pack() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/placeholder")
+}
+
+fn copy_folder(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("make a Pack folder");
+    for entry in fs::read_dir(from).expect("read the placeholder Pack") {
+        let entry = entry.expect("read the placeholder Pack");
+        let target = to.join(entry.file_name());
+        if entry
+            .file_type()
+            .expect("read the placeholder Pack")
+            .is_dir()
+        {
+            copy_folder(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), target).expect("copy the placeholder Pack");
+        }
+    }
+}
+
+/// The placeholder Pack with a Form whose default Action doesn't exist, and a Frame of 0 ms.
+fn write_broken_pack(folder: &Path) {
+    copy_folder(&placeholder_pack(), folder);
+    let manifest = folder.join("manifest.toml");
+    let text = fs::read_to_string(&manifest).expect("read the manifest");
+    let broken = text
+        .replace("default_action = \"idle\"", "default_action = \"walk\"")
+        .replace("durations_ms = [250, 250]", "durations_ms = [250, 0]");
+    assert_ne!(
+        broken, text,
+        "the placeholder manifest changed, so update this"
+    );
+    fs::write(manifest, broken).expect("write the broken manifest");
+}
+
+/// A folder of its own for the app's files, so tests never touch the owner's log or Packs. It goes when the test ends.
+/// A test is its own process, so the process ID makes this unique.
 pub struct TestData(PathBuf);
 
 impl TestData {
@@ -205,6 +260,29 @@ impl TestData {
     pub fn log(&self) -> String {
         let log = self.0.join("DesktopPet").join("desktop-pet.log");
         fs::read_to_string(log).unwrap_or_default()
+    }
+
+    /// Where the app looks for Packs, unless `DESKTOP_PET_PACKS` says otherwise.
+    fn packs_folder(&self) -> PathBuf {
+        self.0.join("DesktopPet").join("packs")
+    }
+
+    /// Fills the Packs folders, and says which one the app should look in. `None` means the usual one.
+    fn add_packs(&self, packs: Packs) -> Option<PathBuf> {
+        let usual = self.packs_folder();
+        fs::create_dir_all(&usual).expect("make the Packs folder");
+        match packs {
+            Packs::Placeholder => copy_folder(&placeholder_pack(), &usual.join("placeholder")),
+            Packs::Empty => {}
+            Packs::Broken => write_broken_pack(&usual.join("placeholder")),
+            Packs::OverriddenWithBroken => {
+                copy_folder(&placeholder_pack(), &usual.join("placeholder"));
+                let elsewhere = self.0.join("other-packs");
+                write_broken_pack(&elsewhere.join("broken"));
+                return Some(elsewhere);
+            }
+        }
+        None
     }
 
     fn record_path(&self) -> PathBuf {
@@ -243,8 +321,14 @@ pub struct PetProcess {
 }
 
 impl PetProcess {
+    /// The app with the placeholder Pack.
     pub fn launch() -> Self {
-        Self::launch_from(Command::new(env!("CARGO_BIN_EXE_desktop-pet")))
+        Self::launch_with(Packs::Placeholder)
+    }
+
+    /// The app with `packs` in its folders. With no usable Pack the Overlay still shows, with nothing on it.
+    pub fn launch_with(packs: Packs) -> Self {
+        Self::launch_from(Command::new(env!("CARGO_BIN_EXE_desktop-pet")), packs)
     }
 
     /// `failing-app`, which is the real app with a failure built in.
@@ -255,12 +339,13 @@ impl PetProcess {
             FailWhen::Hidden => "hidden",
         };
         command.env("FAILING_APP_WHEN", when);
-        Self::launch_from(command)
+        Self::launch_from(command, Packs::Placeholder)
     }
 
     /// For a launch that should stay Hidden: this returns once the app is running, and fails if the Overlay ever shows.
     pub fn launch_kept_hidden() -> Self {
-        let process = Self::start_from(Command::new(env!("CARGO_BIN_EXE_desktop-pet")));
+        let command = Command::new(env!("CARGO_BIN_EXE_desktop-pet"));
+        let process = Self::start_from(command, Packs::Placeholder);
         let pid = process.child.id();
         let start = Instant::now();
         let mut running_since = None;
@@ -291,17 +376,22 @@ impl PetProcess {
         })
     }
 
-    fn launch_from(command: Command) -> Self {
-        let mut process = Self::start_from(command);
+    fn launch_from(command: Command, packs: Packs) -> Self {
+        let mut process = Self::start_from(command, packs);
         let appeared = process.find_overlay(LAUNCH_TIMEOUT);
         assert!(appeared, "the Overlay never became visible");
         process
     }
 
-    fn start_from(mut command: Command) -> Self {
+    fn start_from(mut command: Command, packs: Packs) -> Self {
         assert_no_pet_is_running();
         let startup_list = StartupListGuard::new();
         let data = Arc::new(TestData::new());
+        // The owner's own override mustn't reach the app under test.
+        command.env_remove("DESKTOP_PET_PACKS");
+        if let Some(packs_folder) = data.add_packs(packs) {
+            command.env("DESKTOP_PET_PACKS", packs_folder);
+        }
         let child = command
             .env("LOCALAPPDATA", &data.0)
             .env("FAILING_APP_RECORD", data.record_path())
@@ -349,16 +439,7 @@ impl PetProcess {
 
     /// The app's tray icon. It's added just after the Overlay appears, so this waits for it.
     pub fn tray(&self) -> Tray {
-        let pid = self.child.id();
-        let mut window = None;
-        let found = wait_until(Duration::from_secs(5), || {
-            window = tray_window_of(pid);
-            window.is_some_and(|window| Tray { window }.icon_exists())
-        });
-        assert!(found, "the tray icon never appeared");
-        Tray {
-            window: window.expect("the search found it"),
-        }
+        Tray::of(self.child.id())
     }
 
     /// Waits for the app to exit by itself, and kills it if it doesn't.
@@ -409,6 +490,10 @@ impl Relaunched {
 
     pub fn overlay(&self) -> Option<HWND> {
         visible_window_of(self.pid)
+    }
+
+    pub fn tray(&self) -> Tray {
+        Tray::of(self.pid)
     }
 }
 
@@ -561,6 +646,19 @@ pub struct Tray {
 }
 
 impl Tray {
+    /// The tray icon of process `pid`, waiting for it to appear.
+    fn of(pid: u32) -> Self {
+        let mut window = None;
+        let found = wait_until(Duration::from_secs(5), || {
+            window = tray_window_of(pid);
+            window.is_some_and(|window| Tray { window }.icon_exists())
+        });
+        assert!(found, "the tray icon never appeared");
+        Tray {
+            window: window.expect("the search found it"),
+        }
+    }
+
     /// Whether the taskbar has the icon, for an app that's running. Don't use this to show an icon has gone: it fails as
     /// soon as the app's window has gone, even when a dead icon stays behind on the taskbar.
     pub fn icon_exists(&self) -> bool {

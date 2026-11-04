@@ -2,12 +2,14 @@
 
 mod log_file;
 mod overlay;
-mod placeholder;
+mod pack_assets;
 mod presence;
 mod render_config;
 #[cfg(windows)]
 mod render_config_windows;
 mod render_failure;
+mod renderer;
+mod tray_icon;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, mpsc};
@@ -19,12 +21,21 @@ use pet_core::geometry::Rect;
 use pet_core::presence::Presence;
 
 use overlay::{OverlayRect, PlatformHandle, ShellEventSender};
-use placeholder::PlaceholderPlugin;
+use pack_assets::PackAtStartup;
 use presence::{CurrentPresence, ManualHideAtExit, ShellEvents};
+use renderer::RendererPlugin;
+
+use crate::pack::StartingPack;
 
 pub use render_failure::{RENDER_FAILURE_EXIT, is_render_failure};
 
-pub fn app(work_area: Rect, start: Presence, manual_hide_at_exit: Arc<AtomicBool>) -> App {
+/// The engine, ready to run. With no usable Pack it still runs, with no Pet, so the tray can still quit.
+pub fn app(
+    work_area: Rect,
+    start: Presence,
+    manual_hide_at_exit: Arc<AtomicBool>,
+    pack: StartingPack,
+) -> App {
     let rect = overlay::overlay_rect(work_area);
     let (sender, receiver) = mpsc::channel();
     let mut app = App::new();
@@ -36,6 +47,7 @@ pub fn app(work_area: Rect, start: Presence, manual_hide_at_exit: Arc<AtomicBool
         .insert_resource(ManualHideAtExit(manual_hide_at_exit))
         .insert_resource(ShellEventSender(sender))
         .insert_resource(ShellEvents(Mutex::new(receiver)))
+        .insert_resource(PackAtStartup(pack))
         .add_plugins(
             DefaultPlugins
                 .build()
@@ -47,8 +59,11 @@ pub fn app(work_area: Rect, start: Presence, manual_hide_at_exit: Arc<AtomicBool
                 .set(overlay::window_plugin(rect, render_config::ALPHA_MODE))
                 .set(render_config::render_plugin()),
         )
-        .add_plugins(PlaceholderPlugin { work_area })
-        .add_systems(Startup, overlay::spawn_camera)
+        .add_plugins(RendererPlugin { work_area })
+        .add_systems(
+            Startup,
+            (overlay::spawn_camera, pack_assets::add_starting_pack),
+        )
         .add_systems(
             Update,
             (

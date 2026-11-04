@@ -26,6 +26,7 @@ required-features = ["e2e"]
 e2e = ["dep:windows"]
 
 [dependencies]
+pet-content.workspace = true
 pet-core.workspace = true
 pet-platform.workspace = true
 bevy.workspace = true

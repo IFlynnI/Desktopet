@@ -1,4 +1,5 @@
-//! Tests that never touch the mouse, so they can run while the owner is working.
+//! Tests that show things on screen but send no input: no keys, no mouse, no screenshots. The owner starts them with
+//! `cargo e2e-quiet` and can keep working meanwhile. The tray is driven with the messages Windows sends it.
 
 use std::panic::{self, AssertUnwindSafe};
 use std::thread;
@@ -15,9 +16,9 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use windows::core::w;
 
 use crate::harness::{
-    FailWhen, HotkeyTaken, PetProcess, Relaunched, StartupListGuard, assert_cursor_is_at,
-    cursor_position, make_dpi_aware, press_hotkey, read_startup_entry, wait_until, work_area,
-    write_startup_entry,
+    BROKEN_FIELDS, FailWhen, HotkeyTaken, Packs, PetProcess, Relaunched, StartupListGuard,
+    assert_cursor_is_at, cursor_position, make_dpi_aware, read_startup_entry, wait_until,
+    work_area, write_startup_entry,
 };
 use crate::metrics::{GpuUse, MAX_HIDDEN_CPU_PERCENT, cpu_percent_of_one_core};
 
@@ -106,28 +107,10 @@ fn given_the_app_listens_for_the_shell_when_it_runs_then_the_work_area_stays_the
 }
 
 #[test]
-fn given_a_shown_pet_when_pressing_the_hotkey_then_it_hides_and_a_second_press_shows_it() {
-    // Given
-    let pet = PetProcess::launch();
-
-    // When
-    press_hotkey();
-
-    // Then
-    assert!(pet.wait_until_hidden(), "the first press hides the Overlay");
-
-    // When
-    press_hotkey();
-
-    // Then
-    assert!(pet.wait_until_shown(), "the second press shows it again");
-}
-
-#[test]
 fn given_a_hidden_pet_when_asked_to_close_then_it_exits_on_its_own() {
     // Given
     let pet = PetProcess::launch();
-    press_hotkey();
+    pet.tray().left_click();
     assert!(pet.wait_until_hidden());
 
     // When
@@ -161,7 +144,7 @@ fn given_a_hidden_pet_when_measured_then_it_uses_next_to_no_cpu_and_no_gpu() {
     let gpu = GpuUse::of(pet.child().id());
     thread::sleep(Duration::from_secs(2));
     let gpu_shown = gpu.percent();
-    press_hotkey();
+    pet.tray().left_click();
     assert!(pet.wait_until_hidden());
     thread::sleep(Duration::from_secs(5));
     gpu.percent();
@@ -258,7 +241,7 @@ fn given_a_hidden_pet_when_choosing_quit_then_it_still_exits() {
 fn given_a_hidden_pet_when_launching_again_then_the_first_shows_and_the_second_exits() {
     // Given
     let pet = PetProcess::launch();
-    press_hotkey();
+    pet.tray().left_click();
     assert!(pet.wait_until_hidden());
 
     // When
@@ -339,13 +322,13 @@ fn given_an_app_that_keeps_failing_when_it_relaunches_then_it_stops_after_three_
 }
 
 #[test]
-fn given_a_manual_hide_when_the_app_relaunches_then_it_stays_hidden_until_the_hotkey_shows_it() {
+fn given_a_manual_hide_when_the_app_relaunches_then_it_stays_hidden_until_the_tray_shows_it() {
     // Given
     let first = PetProcess::launch_failing(FailWhen::Hidden);
     let _data = first.data();
 
     // When: this copy fails as soon as it's Hidden
-    press_hotkey();
+    first.tray().left_click();
     let status = first.wait_for_exit().expect("wait for the app");
     assert_eq!(status.code(), Some(RENDER_FAILURE_EXIT.into()));
     let relaunched = Relaunched::wait_for_it();
@@ -353,11 +336,79 @@ fn given_a_manual_hide_when_the_app_relaunches_then_it_stays_hidden_until_the_ho
     // Then
     thread::sleep(Duration::from_secs(1));
     assert!(relaunched.overlay().is_none(), "it starts Hidden");
-    press_hotkey();
+    relaunched.tray().left_click();
     assert!(
         wait_until(Duration::from_secs(5), || relaunched.overlay().is_some()),
-        "the hotkey shows it"
+        "the tray shows it"
     );
+}
+
+/// Quits through the tray and checks the app exited cleanly, which is how the owner gets out of an app with no Pet.
+fn quit_through_the_tray(pet: PetProcess) {
+    pet.tray().choose_quit();
+    let status = pet.wait_for_exit().expect("wait for the app");
+    assert!(status.success(), "{status}");
+}
+
+#[test]
+fn given_a_good_pack_when_launching_then_the_log_file_says_which_pack_is_in_use() {
+    // Given
+    let pet = PetProcess::launch();
+    let data = pet.data();
+
+    // When
+    let logged = wait_until(Duration::from_secs(5), || {
+        data.log().contains("Using the Pack \"Placeholder dragon\"")
+    });
+
+    // Then
+    assert!(logged, "log: {}", data.log());
+}
+
+#[test]
+fn given_no_pack_when_launching_then_the_log_says_so_and_the_tray_still_quits() {
+    // Given
+    let pet = PetProcess::launch_with(Packs::Empty);
+    let data = pet.data();
+
+    // When
+    let logged = wait_until(Duration::from_secs(5), || data.log().contains("no Pack"));
+
+    // Then
+    assert!(logged, "log: {}", data.log());
+    quit_through_the_tray(pet);
+}
+
+#[test]
+fn given_a_broken_pack_when_launching_then_every_error_is_in_the_log_and_the_tray_still_quits() {
+    // Given
+    let pet = PetProcess::launch_with(Packs::Broken);
+    let data = pet.data();
+
+    // When
+    let logged = wait_until(Duration::from_secs(5), || {
+        BROKEN_FIELDS.iter().all(|field| data.log().contains(field))
+    });
+
+    // Then
+    assert!(logged, "log: {}", data.log());
+    quit_through_the_tray(pet);
+}
+
+#[test]
+fn given_the_override_names_another_packs_folder_when_launching_then_the_app_looks_there() {
+    // Given: a good Pack in the usual folder, and a broken one in the folder the override names
+    let pet = PetProcess::launch_with(Packs::OverriddenWithBroken);
+    let data = pet.data();
+
+    // When: only the broken Pack writes anything to the log
+    let logged = wait_until(Duration::from_secs(5), || {
+        BROKEN_FIELDS.iter().all(|field| data.log().contains(field))
+    });
+
+    // Then
+    assert!(logged, "log: {}", data.log());
+    assert!(data.log().contains("other-packs"), "log: {}", data.log());
 }
 
 #[test]

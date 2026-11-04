@@ -1,5 +1,5 @@
-# The e2e tests use the real screen, so they run one at a time. `cargo e2e-quiet` runs the ones that leave the
-# mouse alone, and `cargo e2e` runs them all.
+# The e2e tests use the real screen, so they run one at a time, and only when the owner starts them. `cargo e2e-quiet`
+# runs the ones that send no input, and `cargo e2e` runs them all.
 [profile.default]
 default-filter = "not binary(e2e)"
 

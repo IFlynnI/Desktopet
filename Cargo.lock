@@ -3031,9 +3031,20 @@ name = "pet-app"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "pet-content",
  "pet-core",
  "pet-platform",
  "windows",
+]
+
+[[package]]
+name = "pet-content"
+version = "0.1.0"
+dependencies = [
+ "pet-core",
+ "png",
+ "serde",
+ "toml",
 ]
 
 [[package]]
