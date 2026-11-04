@@ -67,6 +67,14 @@ pub fn make_dpi_aware() {
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 }
 
+/// Top-left corner of a `width` x `height` box centred along the bottom edge of `area`.
+pub fn bottom_centre(area: Rect, width: i32, height: i32) -> Point {
+    Point {
+        x: area.left + (area.width() - width) / 2,
+        y: area.bottom - height,
+    }
+}
+
 pub fn work_area() -> Rect {
     let mut rect = RECT::default();
     // SAFETY: `rect` is a live local of the type SPI_GETWORKAREA writes.
@@ -202,6 +210,9 @@ pub enum Packs {
     Broken,
     /// The placeholder in the usual folder, but `DESKTOP_PET_PACKS` names another folder, holding the broken one.
     OverriddenWithBroken,
+    /// The placeholder with its Anchor 8 art pixels left of centre, so the Pet stands 16 pixels right of where the
+    /// placeholder does. See `write_off_centre_pack`.
+    OffCentreAnchor,
 }
 
 /// Where the mistakes in `Packs::Broken` are, as the log names them.
@@ -246,6 +257,19 @@ fn write_broken_pack(folder: &Path) {
     fs::write(manifest, broken).expect("write the broken manifest");
 }
 
+/// The placeholder Pack with its Anchor moved from the middle of the cell, x = 12, to x = 4.
+fn write_off_centre_pack(folder: &Path) {
+    copy_folder(&placeholder_pack(), folder);
+    let manifest = folder.join("manifest.toml");
+    let text = fs::read_to_string(&manifest).expect("read the manifest");
+    let moved = text.replace("anchor = { x = 12, y = 18 }", "anchor = { x = 4, y = 18 }");
+    assert_ne!(
+        moved, text,
+        "the placeholder manifest changed, so update this"
+    );
+    fs::write(manifest, moved).expect("write the moved manifest");
+}
+
 /// A folder of its own for the app's files, so tests never touch the owner's log or Packs. It goes when the test ends.
 /// A test is its own process, so the process ID makes this unique.
 pub struct TestData(PathBuf);
@@ -275,6 +299,7 @@ impl TestData {
             Packs::Placeholder => copy_folder(&placeholder_pack(), &usual.join("placeholder")),
             Packs::Empty => {}
             Packs::Broken => write_broken_pack(&usual.join("placeholder")),
+            Packs::OffCentreAnchor => write_off_centre_pack(&usual.join("placeholder")),
             Packs::OverriddenWithBroken => {
                 copy_folder(&placeholder_pack(), &usual.join("placeholder"));
                 let elsewhere = self.0.join("other-packs");

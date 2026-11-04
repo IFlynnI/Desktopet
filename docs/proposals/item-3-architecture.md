@@ -1,6 +1,6 @@
 # Proposal: architecture and code structure for roadmap item 3
 
-**Status:** agreed on 2026-11-03. Slice 1 is built.
+**Status:** agreed on 2026-11-03. Slices 1 and 2 are built.
 
 This covers item 3: Packs and the renderer, in five slices. It applies the target architecture agreed in the same
 session, which is drawn in [docs/architecture/index.html](../architecture/index.html) and recorded in
@@ -52,9 +52,11 @@ flowchart LR
     loader -- "Definition" --> sim["pet-sim: Animation clock"]
     loader -- "pixels" --> renderer["pet-app: renderer"]
     sim -- "which Frame, where, which way" --> renderer
-    sim -- "current Frame" --> present["Present: Hit target"]
-    present -- "HitTarget" --> hit["Hit-test thread"]
+    renderer -- "HitTarget, when the Frame or place changes" --> hit["Hit-test thread"]
 ```
+
+The renderer publishes the Hit target in `Update`, from the Frame and placement the simulation picked. It works out
+the placement with the same `pet_core::placement::place` it draws with, so the two can't disagree.
 
 The rule is one-way: data flows from the simulation to the renderer and never back
 ([ADR-0002](../adr/0002-simulation-in-its-own-ecs-crate.md)).
@@ -161,7 +163,8 @@ and keeps the tray icon so you can still quit. `pet-pack validate <folder>` prin
    - Each sheet is exactly one cell high, and as wide as the cell times its number of durations.
 6. **Durations.** There is one duration per Frame, and each is above 0 ms.
 7. **Anchor and Body.**
-   - The Anchor lies inside the cell, with the bottom edge allowed.
+   - The Anchor lies inside the cell or on its edge. It's measured between pixels from the cell's top-left, so x goes
+     from 0 to the width and y from 0 to the height.
    - Every Body has a positive width and height.
    - A per-Action Body belongs to an Action that exists.
 8. **Hit masks.**
@@ -236,6 +239,8 @@ crates/
 | `pet_core::animation_clock` | Given the durations, whether it loops and the time played, returns the Frame. Pure |
 | `pet_core::placement::place(...)` | Anchor position, Form, scale and facing become the `Placement` the Hit mask already uses |
 | `pet_sim::SimPlugin` | Adds the phases, the clock and the Emote systems |
+| `pet_sim::{Pet, Position, Faces, ShownFrame}` | What the renderer reads: where the Anchor is, which way the Pet faces, and the Frame the clock picked |
+| `pet_sim::Hidden` | Set by the app from Presence. The clock holds while it's `true` |
 | `ShowEmote`, `HideEmote`, `PackReloaded` | Messages, read once in a later phase |
 | `Platform::publish_hit_target(HitTarget)` | Unchanged. Now fed from the Frame the simulation picked |
 
@@ -244,7 +249,7 @@ crates/
 | Slice | Adds | Modules | Done when |
 |---|---|---|---|
 | 1. Pack, loader and validator | The Definition types, `pet-content`, `pet-pack`, the placeholder Pack, the app's own tray icon | `pet-core/pack`, `pet-content/*` except `watch`, `pet-app/engine/pack_assets`, `tray_icon` | `pet-pack validate content/placeholder` passes. The app loads the Pack at startup and the Pet looks and moves exactly as today. A broken Pack shows no Pet, logs every error, and the tray still quits |
-| 2. Simulation, clock and renderer | `pet-sim` with its phases, the Animation clock, the renderer, Anchor placement | `pet-core/animation_clock`, `placement`, `pet-sim/*` except `emotes`, `pet-app/engine/renderer` | The Pet plays its default Action on a loop, timed by the Pack's per-Frame durations, at 2× integer scale, placed by its Anchor. The Hit mask follows the simulation's Frame. Hidden freezes the clock, so the Pet doesn't jump on waking |
+| 2. Simulation, clock and renderer | `pet-sim` with its phases, the Animation clock, the renderer, Anchor placement | `pet-core/animation_clock`, `placement`, `pet-sim/*` except `emotes`, `pet-app/engine/renderer` | The Pet plays its default Action on a loop, timed by the Pack's per-Frame durations, at 2× integer scale, placed by its Anchor. The Hit mask follows the simulation's Frame. Hidden freezes the clock, so the Pet doesn't jump on waking <br>**Built.** The app tells the simulation it's Hidden through `pet_sim::Hidden`. The simulation then pauses Bevy's virtual clock, so the time spent Hidden is never added and the fixed clock has nothing to catch up on |
 | 3. Drop shadow | The shadow under the Anchor, with width and colour from the Pack | `pet-app/engine/shadow` | The shadow draws under the feet and never catches clicks |
 | 4. Emotes | The Pack's Emote library, `ShowEmote` and `HideEmote` | `pet-sim/emotes`, `pet-app/engine/emote_view` | A one-shot Emote plays once and vanishes. A looping one stays until hidden. It sits above the top of the Body, never catches clicks. Headless and windowless render tests cover it until item 4 sends it |
 | 5. Hot reload | The Pack watcher | `pet-content/watch`, `pet-sim/pack` | Windows reports file changes, with no polling. A valid edit replaces the Pack and sends `PackReloaded`. An invalid one keeps the old Pack and logs the errors |
@@ -258,7 +263,7 @@ the result.
 |---|---|---|---|
 | Pure rules | `pet-core` unit tests | `cargo nextest run` | Definition types, Animation clock, placement |
 | Pack loading | `pet-content` unit tests and fixture Packs in `tests/packs/` | `cargo nextest run` | Every validator rule, all-or-nothing loading, choosing the first Pack |
-| Simulation | headless `pet-sim` tests with `MinimalPlugins` and manual time | `cargo nextest run` | The clock, phase order, Emotes, swapping a reloaded Pack |
+| Simulation | headless `pet-sim` tests with manual time. `MinimalPlugins` is in the full `bevy` crate, so they add its task pool and time plugins themselves | `cargo nextest run` | The clock, phase order, Emotes, swapping a reloaded Pack |
 | Windowless render tests | `crates/pet-app/tests/render/`, at most 8 at once through a nextest test group | `cargo nextest run` | Exact Frame pixels, integer scale, Anchor, shadow, Emotes |
 | Real exe | `crates/pet-app/tests/e2e/` | only when the owner starts them, see below | Startup with a good or broken Pack, transparency and click-through for the new Hit target, hot reload |
 | Manual | [manual-checks.md](../manual-checks.md) | by hand | What no test can see |
@@ -279,15 +284,18 @@ The windowless render tests draw into an image in memory and compare every byte,
 [windowless-render-tests.md](../research/windowless-render-tests.md) measured about 1 s per test, and no gain beyond 8
 at once. They don't cover the window itself: transparency, click-through and the swapchain stay with the real-exe tests.
 
-To need no test code in `src/`, `pet-app` exposes three pieces, and `engine::app()` is built from them:
+To need no test code in `src/`, `pet-app` exposes these pieces, and `engine::app()` is built from them:
 
 | Item | Purpose |
 |---|---|
-| `PetRenderPlugin` | Draws the Pet into whatever camera exists |
+| `PetRenderPlugin` | Draws the Pet the simulation shows into whatever camera exists |
 | `pet_camera()` | The camera's components, `(Camera2d, Msaa::Off)` |
 | `base_plugins()` | The render setup without a window, with pipelined rendering off |
+| `render_plugin()` | The render settings inside `base_plugins()`. A render test sets synchronous shader compiles on top of them, which the app doesn't need |
+| `PackAtStartup`, `StartingPack` | How the app hands the Pack it loaded to the engine. A render test hands over its own |
 
-The app adds the window and a camera on it. A render test adds a camera aimed at an image.
+The app adds the window, `SimPlugin` and a camera on the window. A render test adds `SimPlugin` and a camera aimed at
+an image.
 
 Housekeeping at the start of slice 1: `cargo e2e-quiet` comes to mean "shows things, sends no input". The hotkey test
 types a real Ctrl+Alt+P through `SendInput`, so it moves to `hands_off.rs` and `cargo e2e`. The README says plainly that

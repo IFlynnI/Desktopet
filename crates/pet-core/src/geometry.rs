@@ -23,14 +23,6 @@ impl Rect {
         self.bottom - self.top
     }
 
-    /// Top-left corner of a `width` x `height` box centred along this rect's bottom edge.
-    pub fn bottom_centre(&self, width: i32, height: i32) -> Point {
-        Point {
-            x: self.left + (self.width() - width) / 2,
-            y: self.bottom - height,
-        }
-    }
-
     /// Whether every part of `other` is inside this rect.
     pub fn covers(&self, other: Rect) -> bool {
         self.left <= other.left
@@ -103,41 +95,5 @@ mod tests {
         // Then
         assert_eq!(width, 100);
         assert_eq!(height, 200);
-    }
-
-    #[test]
-    fn given_a_work_area_when_centring_a_box_at_the_bottom_then_it_is_centred_and_rests_on_the_bottom_edge()
-     {
-        // Given
-        let work_area = Rect {
-            left: 0,
-            top: 0,
-            right: 3840,
-            bottom: 2100,
-        };
-
-        // When
-        let top_left = work_area.bottom_centre(48, 80);
-
-        // Then
-        assert_eq!(top_left, Point { x: 1896, y: 2020 });
-    }
-
-    #[test]
-    fn given_a_work_area_away_from_the_origin_when_centring_at_the_bottom_then_the_offset_is_kept()
-    {
-        // Given: a taskbar on the left or top moves the work area's origin
-        let work_area = Rect {
-            left: 100,
-            top: 50,
-            right: 1100,
-            bottom: 1050,
-        };
-
-        // When
-        let top_left = work_area.bottom_centre(100, 200);
-
-        // Then
-        assert_eq!(top_left, Point { x: 550, y: 850 });
     }
 }

@@ -7,8 +7,8 @@ use std::time::Duration;
 use pet_core::geometry::{Point, Rect};
 
 use crate::harness::{
-    CursorGuard, Packs, PetProcess, click, foreground_window, make_dpi_aware, monitor_area,
-    press_hotkey, wait_until, window_under_cursor_at, work_area,
+    CursorGuard, Packs, PetProcess, bottom_centre, click, foreground_window, make_dpi_aware,
+    monitor_area, press_hotkey, wait_until, window_under_cursor_at, work_area,
 };
 use crate::metrics::{GpuUse, MAX_HIDDEN_CPU_PERCENT, cpu_percent_of_one_core};
 use crate::screen::{Expected, PetView};
@@ -33,10 +33,14 @@ struct Scene {
 }
 
 fn scene() -> Scene {
+    scene_with(Packs::Placeholder)
+}
+
+fn scene_with(packs: Packs) -> Scene {
     make_dpi_aware();
     let cursor = CursorGuard::new();
     let work = work_area();
-    let corner = work.bottom_centre(400, 300);
+    let corner = bottom_centre(work, 400, 300);
     let area = Rect {
         left: corner.x,
         top: corner.y,
@@ -47,7 +51,7 @@ fn scene() -> Scene {
     // A real click puts it in front of whatever is open, and focus moves to it as it would to a real app.
     click(away_from_the_pet(area), &[window.hwnd()]);
     window.drop_to_normal();
-    let pet = PetProcess::launch();
+    let pet = PetProcess::launch_with(packs);
     assert!(
         wait_until(Duration::from_secs(10), || PetView::observe(area)
             .pet_pixels()
@@ -162,18 +166,55 @@ fn given_a_window_behind_the_pet_when_sweeping_the_cursor_across_it_then_only_op
     assert!(points.len() > 100, "too few points: {}", points.len());
 
     // When
-    let misrouted: Vec<_> = points
+    let misrouted = misrouted(&scene, &points);
+
+    // Then
+    assert!(
+        misrouted.is_empty(),
+        "{} of {} points misrouted, first few: {:?}",
+        misrouted.len(),
+        points.len(),
+        &misrouted[..misrouted.len().min(10)]
+    );
+}
+
+/// The points of a sweep where the cursor lands on the wrong window.
+fn misrouted(scene: &Scene, points: &[(Point, Expected)]) -> Vec<(Point, Expected)> {
+    points
         .iter()
-        .filter(|&&(point, expected)| {
+        .copied()
+        .filter(|&(point, expected)| {
             let wanted = match expected {
                 Expected::Overlay => scene.pet.overlay(),
                 Expected::WindowBehind => scene.window.hwnd(),
             };
             window_under_cursor_at(point, SWEEP_SETTLE) != wanted
         })
-        .collect();
+        .collect()
+}
 
-    // Then
+#[test]
+fn given_a_pack_whose_anchor_is_off_centre_when_sweeping_the_cursor_across_the_pet_then_it_stands_by_its_anchor_and_only_opaque_pixels_catch_it()
+ {
+    // Given: the Anchor 8 art pixels left of the cell's middle puts the art 16 pixels right of the placeholder's spot.
+    // The placeholder's opaque pixels are centred to within a few pixels.
+    let scene = scene_with(Packs::OffCentreAnchor);
+    let work = work_area();
+    let view = PetView::observe(scene.area);
+    let bounds = view.bounds().expect("the Pet is on screen");
+    let points = view.sweep();
+    assert!(points.len() > 100, "too few points: {}", points.len());
+
+    // When
+    let misrouted = misrouted(&scene, &points);
+
+    // Then: drawn and hit-tested in the same place, which is the Anchor's
+    let right_of_centre = (bounds.left + bounds.right) / 2 - (work.left + work.right) / 2;
+    assert!(
+        (8..=24).contains(&right_of_centre),
+        "{right_of_centre} pixels right of centre: {bounds:?}"
+    );
+    assert_eq!(bounds.bottom, work.bottom);
     assert!(
         misrouted.is_empty(),
         "{} of {} points misrouted, first few: {:?}",
@@ -361,7 +402,7 @@ fn given_a_broken_pack_when_launching_then_nothing_is_drawn_over_the_window_behi
     // Given: the same window behind as `scene`, where a good Pack's Pet does appear
     make_dpi_aware();
     let _cursor = CursorGuard::new();
-    let corner = work_area().bottom_centre(400, 300);
+    let corner = bottom_centre(work_area(), 400, 300);
     let area = Rect {
         left: corner.x,
         top: corner.y,

@@ -22,6 +22,11 @@ name = "e2e"
 path = "tests/e2e/main.rs"
 required-features = ["e2e"]
 
+# Draws the Pet into an image in memory, with no window: these run with the fast tests.
+[[test]]
+name = "render"
+path = "tests/render/main.rs"
+
 [features]
 e2e = ["dep:windows"]
 
@@ -29,6 +34,7 @@ e2e = ["dep:windows"]
 pet-content.workspace = true
 pet-core.workspace = true
 pet-platform.workspace = true
+pet-sim.workspace = true
 bevy.workspace = true
 
 # Only for `failing-app`. A program can't use dev-dependencies, so the `e2e` feature brings this in.
@@ -36,6 +42,10 @@ bevy.workspace = true
 windows = { workspace = true, optional = true, features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
+
+[dev-dependencies]
+# Writes the render tests' Pack.
+png.workspace = true
 
 [target.'cfg(windows)'.dev-dependencies]
 windows = { workspace = true, features = [

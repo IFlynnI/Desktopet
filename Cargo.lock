@@ -3034,6 +3034,8 @@ dependencies = [
  "pet-content",
  "pet-core",
  "pet-platform",
+ "pet-sim",
+ "png",
  "windows",
 ]
 
@@ -3060,6 +3062,16 @@ dependencies = [
  "raw-window-handle",
  "tray-icon",
  "windows",
+]
+
+[[package]]
+name = "pet-sim"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_time",
+ "pet-core",
 ]
 
 [[package]]

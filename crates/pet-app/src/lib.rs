@@ -4,7 +4,10 @@ mod engine;
 mod pack;
 mod relaunch;
 
-pub use engine::RENDER_FAILURE_EXIT;
+pub use engine::{
+    PackAtStartup, PetRenderPlugin, RENDER_FAILURE_EXIT, base_plugins, pet_camera, render_plugin,
+};
+pub use pack::StartingPack;
 
 use std::env;
 use std::sync::Arc;
@@ -14,7 +17,7 @@ use bevy::app::{App, AppExit};
 use pet_core::presence::Presence;
 use relaunch::Launch;
 
-use pack::{PACKS_OVERRIDE, StartingPack};
+use pack::PACKS_OVERRIDE;
 
 /// Runs the app until it exits. `setup` sees the finished `App` first, so another program can add to it.
 pub fn run(setup: impl FnOnce(&mut App)) -> AppExit {

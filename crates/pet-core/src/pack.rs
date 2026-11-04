@@ -48,8 +48,8 @@ pub struct CellSize {
     pub height: u32,
 }
 
-/// Where the feet meet the ground, in art pixels from the cell's top-left. `y` may equal the cell's height, which is
-/// the bottom edge.
+/// Where the feet meet the ground, in art pixels from the cell's top-left, measured between pixels rather than naming
+/// one. So `x` may equal the cell's width, the right edge, and `y` its height, the bottom edge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Anchor {
     pub x: u32,

@@ -4,7 +4,6 @@ use std::sync::mpsc::Sender;
 
 use bevy::ecs::system::NonSendMarker;
 use bevy::prelude::*;
-use bevy::render::view::Msaa;
 use bevy::window::{
     CompositeAlphaMode, CursorOptions, PresentMode, PrimaryWindow, RawHandleWrapper, WindowLevel,
     WindowResolution,
@@ -74,7 +73,7 @@ pub fn window_plugin(rect: Rect, composite_alpha_mode: CompositeAlphaMode) -> Wi
 }
 
 pub fn spawn_camera(mut commands: Commands) {
-    commands.spawn((Camera2d, Msaa::Off));
+    commands.spawn(super::pet_camera());
 }
 
 /// Has to run on the main thread. `Platform::start` changes the Overlay's styles, and Windows answers that

@@ -1,5 +1,6 @@
-//! Turns the starting Pack's pixels into Bevy images, and logs what happened to the Pack. The log file only exists
-//! once the engine is up, so this is where a broken or missing Pack gets reported.
+//! Turns the starting Pack's pixels into Bevy images, hands its Definition to the simulation, and logs what happened
+//! to the Pack. The log file only exists once the engine is up, so this is where a broken or missing Pack gets
+//! reported.
 
 use std::sync::Arc;
 
@@ -9,7 +10,8 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use pet_content::{FramePixels, LoadedPack};
 use pet_core::hit_mask::HitMask;
-use pet_core::pack::{AnimationId, FormId, PackDefinition};
+use pet_core::pack::{AnimationId, FormId};
+use pet_sim::CurrentPack;
 
 use super::log_file;
 use crate::pack::StartingPack;
@@ -24,10 +26,10 @@ pub struct FrameAsset {
     pub hit_mask: Arc<HitMask>,
 }
 
-/// The Pack in use: its Definition, and every Frame as a Bevy image. It exists only when a Pack loaded.
+/// Every Frame of the Pack in use as a Bevy image. It exists only when a Pack loaded, and its Definition is then the
+/// simulation's `CurrentPack`.
 #[derive(Resource)]
 pub struct PackAssets {
-    pub definition: Arc<PackDefinition>,
     /// By Form, then Animation, then Frame, numbered as in the Definition.
     frames: Vec<Vec<Vec<FrameAsset>>>,
 }
@@ -54,10 +56,7 @@ impl PackAssets {
                     .collect()
             })
             .collect();
-        Self {
-            definition: Arc::new(definition.clone()),
-            frames,
-        }
+        Self { frames }
     }
 
     pub fn frames(&self, form: FormId, animation: AnimationId) -> &[FrameAsset] {
@@ -99,6 +98,7 @@ pub fn add_starting_pack(
             folder.display()
         );
         commands.insert_resource(PackAssets::new(pack, &mut images));
+        commands.insert_resource(CurrentPack(Arc::new(pack.definition.clone())));
     }
     // Its pixels are in the images now, so they needn't stay in memory twice.
     commands.remove_resource::<PackAtStartup>();
@@ -135,8 +135,8 @@ mod tests {
         let assets = PackAssets::new(&pack, &mut images);
 
         // Then
-        let form = assets.definition.starting_form;
-        let idle = assets.definition.form(form).default_animation();
+        let form = pack.definition.starting_form;
+        let idle = pack.definition.form(form).default_animation();
         let frames = assets.frames(form, idle);
         let pixels = pack.pixels.frames(form, idle);
         assert_eq!(frames.len(), 2);
@@ -162,6 +162,8 @@ mod tests {
 
         // Then
         assert!(app.world().contains_resource::<PackAssets>());
+        let current = app.world().resource::<CurrentPack>();
+        assert_eq!(current.0.name, "Placeholder dragon");
         assert!(!app.world().contains_resource::<PackAtStartup>());
     }
 
@@ -175,6 +177,7 @@ mod tests {
 
         // Then
         assert!(!app.world().contains_resource::<PackAssets>());
+        assert!(!app.world().contains_resource::<CurrentPack>());
         assert!(!app.world().contains_resource::<PackAtStartup>());
     }
 }

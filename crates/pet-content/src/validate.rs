@@ -91,13 +91,14 @@ fn check_form(
         .cell
         .and_then(|cell| check_cell(&format!("{path}.cell"), cell, errors));
     if let (Some(cell), Some(anchor)) = (cell, form.anchor)
-        && !(anchor.x < cell.width && anchor.y <= cell.height)
+        && !(anchor.x <= cell.width && anchor.y <= cell.height)
     {
         errors.push(error(
             format!("{path}.anchor"),
             format!(
-                "({}, {}) isn't inside the {} x {} cell. The bottom edge, y = {}, is allowed",
-                anchor.x, anchor.y, cell.width, cell.height, cell.height
+                "({}, {}) isn't inside the {} x {} cell. It's measured between pixels from the top-left, \
+                 so x can go up to {} and y up to {}",
+                anchor.x, anchor.y, cell.width, cell.height, cell.width, cell.height
             ),
         ));
     }
@@ -648,9 +649,21 @@ mod tests {
     }
 
     #[test]
-    fn given_an_anchor_past_the_right_edge_when_checking_then_it_is_reported() {
-        // Given: the cell is 24 wide, so x = 24 is just outside
+    fn given_an_anchor_on_the_right_edge_when_checking_then_there_are_no_errors() {
+        // Given: the Anchor is measured between pixels, so x = 24 is the right edge of a 24-wide cell
         let manifest = example_with("anchor = { x = 12, y = 18 }", "anchor = { x = 24, y = 18 }");
+
+        // When
+        let errors = check(&manifest, &example_sheets());
+
+        // Then
+        assert!(errors.is_empty(), "{errors:?}");
+    }
+
+    #[test]
+    fn given_an_anchor_past_the_right_edge_when_checking_then_it_is_reported() {
+        // Given: x = 24 is the right edge and allowed, so x = 25 is the first that isn't
+        let manifest = example_with("anchor = { x = 12, y = 18 }", "anchor = { x = 25, y = 18 }");
 
         // When
         let errors = check(&manifest, &example_sheets());

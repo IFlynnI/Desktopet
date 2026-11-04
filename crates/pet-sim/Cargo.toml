@@ -1,0 +1,15 @@
+[package]
+name = "pet-sim"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The Pet's world as ECS systems: thin glue over pet-core's rules, with no rendering."
+
+[dependencies]
+pet-core.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_time.workspace = true
+
+[lints]
+workspace = true

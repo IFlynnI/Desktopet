@@ -30,7 +30,8 @@ way. A release build has no terminal to press it in.
 
 ## Test it
 
-Fast tests have no window, GPU or mouse:
+Fast tests show no window and touch neither the mouse nor the keyboard. The render tests among them draw the Pet
+into memory on the GPU and check every pixel:
 
 ```bash
 cargo nextest run

@@ -61,17 +61,20 @@ pub fn wake_for_exit(mut exits: MessageReader<AppExit>, proxy: Res<EventLoopProx
     }
 }
 
-/// While Hidden, everything stops. The world freezes, so the Pet reappears where it was. A wake-up from the shell
-/// thread still runs an update, which is how this gets undone.
+/// While Hidden, everything stops. The world freezes, so the Pet reappears where it was, and the simulation holds
+/// its clock so it doesn't catch up on waking. A wake-up from the shell thread still runs an update, which is how this
+/// gets undone.
 pub fn apply_presence(
     presence: Res<CurrentPresence>,
     manual_hide_at_exit: Res<ManualHideAtExit>,
+    mut simulation: ResMut<pet_sim::Hidden>,
     mut windows: Query<&mut Window, With<PrimaryWindow>>,
     mut cameras: Query<&mut Camera>,
     mut settings: ResMut<WinitSettings>,
     platform: Option<Res<PlatformHandle>>,
 ) {
     let hidden = presence.is_hidden();
+    simulation.set_if_neq(pet_sim::Hidden(hidden));
     manual_hide_at_exit
         .0
         .store(presence.manual_hide(), Ordering::Relaxed);
@@ -111,6 +114,7 @@ mod tests {
                 .insert_resource(ManualHideAtExit(manual_hide_at_exit.clone()))
                 .insert_resource(ShellEvents(Mutex::new(receiver)))
                 .insert_resource(render_config::winit_settings(false))
+                .init_resource::<pet_sim::Hidden>()
                 .add_message::<AppExit>()
                 .add_message::<WindowCloseRequested>()
                 .add_systems(
@@ -139,6 +143,10 @@ mod tests {
         fn camera_is_active(&mut self) -> bool {
             let world = self.app.world_mut();
             world.query::<&Camera>().single(world).unwrap().is_active
+        }
+
+        fn simulation_is_hidden(&self) -> bool {
+            self.app.world().resource::<pet_sim::Hidden>().0
         }
 
         fn wait(&self) -> Duration {
@@ -183,6 +191,26 @@ mod tests {
         assert!(engine.is_visible());
         assert!(engine.camera_is_active());
         assert!(engine.wait() < Duration::from_secs(1));
+    }
+
+    #[test]
+    fn given_a_shown_pet_when_toggled_twice_then_the_simulation_is_told_it_is_hidden_and_then_shown()
+     {
+        // Given
+        let mut engine = Engine::starting_with(Presence::default());
+
+        // When: what the simulation is told after the first update and after each toggle
+        let mut told = Vec::new();
+        engine.app.update();
+        told.push(engine.simulation_is_hidden());
+        for _ in 0..2 {
+            engine.shell.send(ShellEvent::Toggle).unwrap();
+            engine.app.update();
+            told.push(engine.simulation_is_hidden());
+        }
+
+        // Then
+        assert_eq!(told, [false, true, false]);
     }
 
     #[test]

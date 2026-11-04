@@ -5,11 +5,18 @@ default-filter = "not binary(e2e)"
 
 [test-groups]
 desktop = { max-threads = 1 }
+# Each windowless render test is a process of its own holding a GPU device, about 326 MB in a debug build, and more
+# than 8 at once runs no faster (docs/research/windowless-render-tests.md).
+gpu = { max-threads = 8 }
 
 [[profile.default.overrides]]
 filter = "binary(e2e)"
 test-group = "desktop"
 slow-timeout = { period = "60s", terminate-after = 2 }
+
+[[profile.default.overrides]]
+filter = "binary(render)"
+test-group = "gpu"
 
 [profile.e2e]
 default-filter = "binary(e2e)"

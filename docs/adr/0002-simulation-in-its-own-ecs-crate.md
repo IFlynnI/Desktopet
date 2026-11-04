@@ -24,3 +24,8 @@ rewriting.
 - Bevy drops a message after two updates whether or not it was read, so a system that is switched off misses what was
   sent meanwhile.
 - Bevy's fixed clock can run a burst of steps on waking from Hidden, so the simulation must hold it to keep the freeze.
+  The burst is capped by `Time<Virtual>`'s `max_delta`, 250 ms by default, which is up to 7 ticks at 30 a second.
+  The simulation holds it by pausing virtual time while Hidden.
+- While Hidden, virtual time is paused, so no fixed ticks run and Bevy's message buffers stop rotating. A message sent
+  while Hidden stays buffered until waking, so "dropped after two updates" holds only while shown. Systems added later
+  must not rely on messages being dropped while Hidden.
