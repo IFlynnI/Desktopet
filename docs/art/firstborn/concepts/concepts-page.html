@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>firstborn: gate 1 concepts</title>
+<style>
+  body { font: 14px/1.45 "Segoe UI", system-ui, sans-serif; margin: 24px; background: #f4f4f6; color: #1b1b1f; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .hint { color: #555; margin: 0 0 16px; }
+  .controls { margin-bottom: 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 18px; box-shadow: 0 1px 3px #0002; }
+  .card h2 { font-size: 16px; margin: 0 0 10px; }
+  .row { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; }
+  .stage { padding: 12px; border-radius: 6px; display: flex; gap: 14px; align-items: flex-end; }
+  .stage.light { background: #f3f3f3; }
+  .stage.dark { background: #202020; }
+  .stage.task { background: linear-gradient(#5a7fa8 0, #5a7fa8 calc(100% - 24px), #1c1c1c calc(100% - 24px)); padding-bottom: 24px; }
+  .stage span { display: block; font-size: 11px; color: #888; text-align: center; }
+  img { image-rendering: pixelated; display: block; }
+  .sil img { filter: brightness(0); }
+  .pal { display: flex; gap: 2px; margin-top: 10px; }
+  .pal i { width: 16px; height: 16px; border-radius: 3px; display: inline-block; box-shadow: inset 0 0 0 1px #0002; }
+</style>
+<h1>firstborn: gate 1, three concepts</h1>
+<p class="hint">Rough thumbnails at about the MVP size, to judge the silhouette, the colour and the idea. They are not final art.
+  The taskbar strip shows the Pet standing on the Ground plane at 2×, its default scale.</p>
+<div class="controls">
+  <label><input type="checkbox" id="sil"> Show as silhouettes</label>
+</div>
+<div id="cards"></div>
+<script>
+const CARDS = /*CARDS*/[];
+const root = document.getElementById('cards');
+function img(b64, w, h, s) {
+  const i = new Image(); i.src = 'data:image/png;base64,' + b64; i.width = w * s; i.height = h * s; return i;
+}
+function stage(cls, label, items) {
+  const d = document.createElement('div'); d.className = 'stage ' + cls;
+  for (const it of items) { const w = document.createElement('div'); w.appendChild(it); d.appendChild(w); }
+  const wrap = document.createElement('div'); wrap.appendChild(d);
+  const l = document.createElement('span'); l.textContent = label; wrap.appendChild(l); return wrap;
+}
+for (const c of CARDS) {
+  const card = document.createElement('div'); card.className = 'card';
+  card.innerHTML = `<h2>${c.title}</h2>`;
+  const row = document.createElement('div'); row.className = 'row';
+  row.appendChild(stage('light', '1×, true size', [img(c.egg, c.ew, c.eh, 1), img(c.hatch, c.hw, c.hh, 1)]));
+  row.appendChild(stage('task', '2× on the taskbar', [img(c.egg, c.ew, c.eh, 2), img(c.hatch, c.hw, c.hh, 2)]));
+  row.appendChild(stage('light', '4× on a light app', [img(c.egg, c.ew, c.eh, 4), img(c.hatch, c.hw, c.hh, 4)]));
+  row.appendChild(stage('dark', '4× on a dark app', [img(c.hatch, c.hw, c.hh, 4)]));
+  card.appendChild(row);
+  const pal = document.createElement('div'); pal.className = 'pal';
+  for (const p of c.palette) { const i = document.createElement('i'); i.style.background = p; i.title = p; pal.appendChild(i); }
+  card.appendChild(pal);
+  const note = document.createElement('p'); note.className = 'hint';
+  note.textContent = `Hatchling drawn size: ${c.size} px. ${c.palette.length} colours.`;
+  card.appendChild(note);
+  root.appendChild(card);
+}
+document.getElementById('sil').addEventListener('change', e => document.body.classList.toggle('sil', e.target.checked));
+</script>

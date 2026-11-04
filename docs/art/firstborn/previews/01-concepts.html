@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>firstborn: gate 1 concepts</title>
+<style>
+  body { font: 14px/1.45 "Segoe UI", system-ui, sans-serif; margin: 24px; background: #f4f4f6; color: #1b1b1f; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .hint { color: #555; margin: 0 0 16px; }
+  .controls { margin-bottom: 16px; display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 18px; box-shadow: 0 1px 3px #0002; }
+  .card h2 { font-size: 16px; margin: 0 0 10px; }
+  .row { display: flex; gap: 18px; align-items: flex-end; flex-wrap: wrap; }
+  .stage { padding: 12px; border-radius: 6px; display: flex; gap: 14px; align-items: flex-end; }
+  .stage.light { background: #f3f3f3; }
+  .stage.dark { background: #202020; }
+  .stage.task { background: linear-gradient(#5a7fa8 0, #5a7fa8 calc(100% - 24px), #1c1c1c calc(100% - 24px)); padding-bottom: 24px; }
+  .stage span { display: block; font-size: 11px; color: #888; text-align: center; }
+  img { image-rendering: pixelated; display: block; }
+  .sil img { filter: brightness(0); }
+  .pal { display: flex; gap: 2px; margin-top: 10px; }
+  .pal i { width: 16px; height: 16px; border-radius: 3px; display: inline-block; box-shadow: inset 0 0 0 1px #0002; }
+</style>
+<h1>firstborn: gate 1, three concepts</h1>
+<p class="hint">Rough thumbnails at about the MVP size, to judge the silhouette, the colour and the idea. They are not final art.
+  The taskbar strip shows the Pet standing on the Ground plane at 2×, its default scale.</p>
+<div class="controls">
+  <label><input type="checkbox" id="sil"> Show as silhouettes</label>
+</div>
+<div id="cards"></div>
+<script>
+const CARDS = [{"id": "a-brim", "title": "Brim, the helmeted brimstone drake", "egg": "iVBORw0KGgoAAAANSUhEUgAAACQAAAAsCAYAAAANUxr1AAABFklEQVR42u3YvQ3CMBAF4CxBR03BErTMwDBMwAJ0lGzBBAxAxwJ09KBXWLpYTmLfPf8o8kkny1Iu/nKgCG4YevTo0SMttpvdT2Z1iB9VYCGIjO/nXQ61hHGgIigc4A5DTkFkZkP5mJSkoyyYLKimQAwM8vV8cFAMEDAUEG7gbmbFUFAovh/3IxT28sC5PWpkvQkkMaFVHi7XqevlqkLJjyv0pJY9BcTMpkCX8y0dlLM7ACWjcDGKWIjD6TrCqEFMlMSYQAyUjzGDXKL1rv1aCBUU07WlOhUoFqVN9XtoVSB819bdIYmae9pimFxdovxqbAYTA3Ivy2IgVpey/FlsBmNBFRk4NIPxh1VzkCrTNH+cV32slyP+5CTRiysNWjUAAAAASUVORK5CYII=", "ew": 36, "eh": 44, "hatch": "iVBORw0KGgoAAAANSUhEUgAAADgAAAA4CAYAAACohjseAAACyElEQVR42uWav07DMBDG+xJszAzAxoaQOiHxDCxMiI1HYGKqkJjZOjIi8QAgxAgLE2ydUBc21DXoIr7qMGfHl5z/FCx9ausml/v5HPvsZDQqXNbXNhrS6K8Wgpu/3jTVgVo6A0iAVgPo6k8BwrHp5HSwc9UCaiCliEMWjZRloJCcBISvcLiVgyR9fsyCIkAOSd9XApAc9UFdnE1FSIjqqpwfcT9xR2MlnfP2fFfXtCFFoq8IDioOSQ6QI0OAfHBVQAKQywIKonu2GKAEl0rZIWPgqPVJFoDZI2kdvVBj4L9sgHQh1xmrSElgXFkgAZgCKgRXBJArFVQ1gBro2POrB7RWEcCt3RPRmRT1PkAkGKaA9EkXHx9e/XIuVH90/qg6ntdLgG72ZLrxRJ/kAHcCTqWoD0WQzknSXV0n+G9Nfbv6f9ppmsVDK+lYQGad9H3Oa7UE/IaU4Kh7Q4MhYwwAMAWkC8cBe0exeRk3QyCtQF0wya4akOAkwC5DLuBQUMnWYEACm+9vt+KQZGQ22Qsa8wFaK3ZEFQvgSBJALZBc6i5KcNJJAMwNKdnr/TyEz2e1QPq2+wdN2NcHm61co4DLBWk+kfMIAtKFSg1p8TguOuXqCwkHL2/flyoSsRAcCdlCLCSETIMDSjJNufoA8tVCF6CbI2oBeeqVpJuGALsgJbguSOlYyY4ZpAQYE0VkFz5An3B/QwDktnrlmlpAXMQ34PD0SQO2uD/+IaozSaa1azq3pbmk4/vAQclH1piFaxdgCJL3ABeO94ik00aoq8ZuQfgapmskhpBFZZ0yLAA1Sg4Y47xmUVtVBGMhNav32LQvSwQ1+yyx2xTSCCwpG5z0CpZv2yBGLpyb6fBspujzeCmqWshQalfFezFSVLWA0nxpmrmkuk9jIEMDUrXvqQ3dAuy1DVgDoG/TqMiq3voV5679mqQL3P9SvgDQiyLfYDMPxQAAAABJRU5ErkJggg==", "hw": 56, "hh": 56, "size": "52 x 55", "palette": ["#1c1526", "#2b3a67", "#3f5a99", "#5f84c4", "#8fb3e6", "#a8482a", "#e08a3c", "#f6c065", "#8c7ea0", "#d9cdbf", "#f4ede0", "#ffffff", "#a08a6e", "#e8d8b0", "#ffcc33", "#fff6c2", "#e8452c", "#ffd23f"]}, {"id": "b-nox", "title": "Nox, the crescent night drake", "egg": "iVBORw0KGgoAAAANSUhEUgAAACQAAAAsCAYAAAANUxr1AAABE0lEQVR42u3YsQ3CMBAF0ExAQU8BA9CxAjViDBagYAMahmAhBqBjAxYIukgnGct2nLt/tgt/6Xex/XQUJB6Gnp6enmVZr3aj2+qQy+311yqwEIR7PD+nFkPRQXxoDFMM5WJya4aSYExRTYFoQ4oUtD9csSjNdOAg2og21GC4EBSDuBIIDORjcmCx5yGoFIj7fd+nzj1nDmLIEowKNDcdCYa62Z5kqBjo8RnF0yEMHKT5udQgWowCMUYNCqFcUA7KxUBAIVgOyl8PB7n1QX5Ta01AMVjOGlOQpCoQpSlQMxOyQqn/XJEYCuSdqInpNAtCoeBfHf4B9BpSDaSdkunndDMYCarolUwKVu02zb/Oq36tZ5EfPPy+EZuJOkMAAAAASUVORK5CYII=", "ew": 36, "eh": 44, "hatch": "iVBORw0KGgoAAAANSUhEUgAAADgAAAA4CAYAAACohjseAAACQ0lEQVR42u3aoU4EMRAG4HsCBB4BEoFDIc6hCRKD5x6ABN4AcwpDcBgeAYPGolAoeAHCCyyZDUPmJtOZbo9rZzbb5M8mu3ukH71tZ5ubzaY2tamNtm1v7XVawsO+329W8nQ7X0lIdA5Mi2toCgfn4civ0eshRpIDsfMWPsxzp3Xeuh4OOCocR/DOa/jRAcOufxNwLEAJMPoRlK6HrFGtUdzZPelzfPrQXVy/ioFrbqFYkqWA0HmMBsS4RUqTDO24BE1dd4+E48HhZRJgBT7r/rmETpYg8XNhgBYS7u0+rvrQz4QC8tDRAhgi+X2uZ1YNKEGk826XkKFAKbh2upx46AJfAqPFgcuvKwXyaCDrXndfU63zVqR/grsJZ10khW0UV/LHsVTDTi4/uyxElTeNVG1ZAsRYqCZTPN8lG9KZVD3abMLAzmvVBBzP5ncmNGcdbDZqfOaCRjuESISWAF3gpBGlOIrksRb4akANR+852l/04TgI35LQFurmQGkxRWAKx9/UrSWh6eilcDQ5QGu9awLUdsXo84VQjtPWO5rF+WMdZC5QGlV8vhAFLRf48vxVB5kDLN1z0XBNgND+EwgBxP3y7Q+FgXOhRlCCIg5DcZhwQBoOlLLx1591Ft9+F+y3hAsDHIK0yjG3wFyktanUHFiC5MW0tocCQAyH4fkqQKsgpsndCaMVi5Zq1YyEhGJ5yP7lUGD198GSDVoLSUFNi+5SJK9H6Z4LRWr3uULm7Dyn7nWxdWFt1Fq/kiiJq58kzwK1H+Tl6y5jbYDOAAAAAElFTkSuQmCC", "hw": 56, "hh": 56, "size": "47 x 52", "palette": ["#120e22", "#1d2150", "#2e3577", "#4652a3", "#6a7bd0", "#6b5fa8", "#9c8fd6", "#c7bdf0", "#b8953f", "#f2dc8a", "#fff6cf", "#3b2a6b", "#5a3f9a", "#ffffff", "#8fe3ff", "#ffe27a", "#120e22"]}, {"id": "c-volt", "title": "Volt, the storm axolotl", "egg": "iVBORw0KGgoAAAANSUhEUgAAACQAAAAsCAYAAAANUxr1AAABAElEQVR42u3YwQ3CMAwF0A7BiSmYgAFYgwHYo0NwRIzDqWIALtxQOXIIipClqHISJ7bTCPlLPlVxn5IoUTsMFovFYrHoZ3+6Oko1g+QyvX+lCvON4UW+cpiwAOWeB6eCqanuMO5z46MA8xhnEdR5evH2VDg7HBRgWCA/EJpwZwf6sFAhiAJbnkEYpBqEYVKw2MGY6lGEyjVbNk5VN6DtZhcFHS93HRDlPmsGol6wGKYK5AdpYapBGEoCwwKFMAmIGIiKiQGagqgIURCGqoH8B6hk2bDn4hjOxlYDYahVMam9RFk+FVAOVbJvRDBUVFOMBEr167UE1vwbf/WfDZYe8gWr0I0jy/p8kwAAAABJRU5ErkJggg==", "ew": 36, "eh": 44, "hatch": "iVBORw0KGgoAAAANSUhEUgAAADgAAAA4CAYAAACohjseAAACQklEQVR42u2avU1DQQzHMwQVI1AxAQPABrQMwCIUTECJQs8gVBElLV0kSoqH/CRLluWzfd934ixZkaLLi3/PPvt/Lzkcli1btmzZsmVF7fLietu+b7fSa4cxCHj7/TADRzjP2qGy93b3pQYMa3DddBnE4K0bgHBT7j8rcJq96eA82Zka8P7qeXcNYOoyxRL1Qk65D6UscZBhspjTxkMQ9H3IdFfAnEEsAQ4FRyFTApHKdDg43hBC7s0edtmhmgsNDLsjd28T8QiBru1fg+UgdB1+9ubxuLtWDd1vAA3EyiICvZzO2+lnczmsHQpWgoRXCDTkElTIu89JCojlqAWc4l2zyffbw+tncUC4JnhVyFAjkABTIfHaIbisTGqyjJci15jwioFwjwUEo2AUECwZkMoyTTtK44FmroVnQfLZRcH4cYiCTwHIz3QcLLTvwGHepQR7fnrf3bMWvgPXF20qnhuBQ71W1vD6qISajgn65dRjSs6CQrDqgHxcSKVquQTC9SoH41q2mXrhzcYDqLkkvrPKM3aASmMjNoO5NyAa0KsWLLjagEmliSUgbXztIAsw/IRQEyx79mkdTnqmoh2BumfNCwkgVN1Qt3RlDIT02eJHJKlUqT6NBYyBpaK86rEoBEnnVc5pQTolhPZ/dWUSUhaWKrGALLXSRIrR4RoLmKIxuzxV06RTCdAuwtlSOrmwzUux5Mmh64wrCRhqDF1nXGlArQN2m3E1Roj1W0PzGVdjD1r/qBh+33kfAJdav2zZP7I/galF7q0p5QgAAAAASUVORK5CYII=", "hw": 56, "hh": 56, "size": "46 x 45", "palette": ["#1a1430", "#3e6fa8", "#63a6d8", "#9ed6f0", "#d6f3ff", "#5a2a90", "#a94be0", "#e48af2", "#ffe94a", "#fffbd0", "#1a1430", "#ffffff", "#f08cb4"]}];
+const root = document.getElementById('cards');
+function img(b64, w, h, s) {
+  const i = new Image(); i.src = 'data:image/png;base64,' + b64; i.width = w * s; i.height = h * s; return i;
+}
+function stage(cls, label, items) {
+  const d = document.createElement('div'); d.className = 'stage ' + cls;
+  for (const it of items) { const w = document.createElement('div'); w.appendChild(it); d.appendChild(w); }
+  const wrap = document.createElement('div'); wrap.appendChild(d);
+  const l = document.createElement('span'); l.textContent = label; wrap.appendChild(l); return wrap;
+}
+for (const c of CARDS) {
+  const card = document.createElement('div'); card.className = 'card';
+  card.innerHTML = `<h2>${c.title}</h2>`;
+  const row = document.createElement('div'); row.className = 'row';
+  row.appendChild(stage('light', '1×, true size', [img(c.egg, c.ew, c.eh, 1), img(c.hatch, c.hw, c.hh, 1)]));
+  row.appendChild(stage('task', '2× on the taskbar', [img(c.egg, c.ew, c.eh, 2), img(c.hatch, c.hw, c.hh, 2)]));
+  row.appendChild(stage('light', '4× on a light app', [img(c.egg, c.ew, c.eh, 4), img(c.hatch, c.hw, c.hh, 4)]));
+  row.appendChild(stage('dark', '4× on a dark app', [img(c.hatch, c.hw, c.hh, 4)]));
+  card.appendChild(row);
+  const pal = document.createElement('div'); pal.className = 'pal';
+  for (const p of c.palette) { const i = document.createElement('i'); i.style.background = p; i.title = p; pal.appendChild(i); }
+  card.appendChild(pal);
+  const note = document.createElement('p'); note.className = 'hint';
+  note.textContent = `Hatchling drawn size: ${c.size} px. ${c.palette.length} colours.`;
+  card.appendChild(note);
+  root.appendChild(card);
+}
+document.getElementById('sil').addEventListener('change', e => document.body.classList.toggle('sil', e.target.checked));
+</script>

@@ -1,0 +1,163 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>firstborn: gate 3 animatic</title>
+<style>
+  body { font: 14px/1.45 "Segoe UI", system-ui, sans-serif; margin: 24px; background: #f4f4f6; color: #1b1b1f; max-width: 1280px; }
+  h1 { font-size: 20px; margin: 0 0 4px; } h2 { font-size: 17px; margin: 30px 0 10px; } h3 { font-size: 15px; margin: 0 0 4px; }
+  .hint { color: #555; margin: 0 0 12px; max-width: 920px; }
+  table { border-collapse: collapse; font-size: 12.5px; background: #fff; }
+  td, th { padding: 3px 8px; border-bottom: 1px solid #e4e4ea; text-align: left; vertical-align: top; }
+  th { background: #ececf2; font-weight: 600; }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .card { background: #fff; border-radius: 10px; padding: 14px 16px; margin: 0 0 18px; box-shadow: 0 1px 3px #0002;
+          display: grid; grid-template-columns: auto 1fr; gap: 18px; }
+  .stage { width: 300px; height: 340px; border-radius: 8px; position: relative; overflow: hidden; display: flex;
+           align-items: flex-end; justify-content: center; }
+  .stage.light { background: #f3f3f3; } .stage.dark { background: #202020; }
+  .stage.task { background: linear-gradient(#6b8cb4 0, #6b8cb4 calc(100% - 22px), #1c1c1c calc(100% - 22px)); }
+  .stage.task img { margin-bottom: 22px; }
+  .stage img { image-rendering: pixelated; display: block; position: relative; }
+  .stage.sil img { filter: brightness(0); }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; font-size: 12.5px; max-width: 300px; }
+  .controls button { font: inherit; padding: 2px 8px; }
+  .kind { display: inline-block; width: 70px; font-size: 11px; border-radius: 4px; padding: 0 4px; text-align: center; }
+  .kind.key { background: #dbe7ff; } .kind.inbetween { background: #eee; color: #666; } .kind.smear { background: #ffe0d0; }
+  .kind.hold { background: #e2f3df; }
+  tr.now td { background: #fff3c4; }
+  .badge { font-size: 11px; background: #eee; border-radius: 4px; padding: 1px 6px; margin-left: 6px; color: #444; }
+  .note { color: #444; margin: 2px 0 8px; max-width: 760px; }
+  .emote { display: inline-block; vertical-align: top; margin: 0 16px 16px 0; background: #fff; border-radius: 10px; padding: 12px;
+           box-shadow: 0 1px 3px #0002; }
+  .ebox { width: 220px; height: 48px; border: 1px dashed #aab; border-radius: 6px; display: flex; align-items: center;
+          justify-content: center; font-size: 13px; color: #445; margin-bottom: 8px; }
+</style>
+<h1>firstborn: gate 3, the animation plan as a key-pose animatic</h1>
+<p class="hint">Each player shows only the <b>keys, smears and holds</b>, each held until the next one, at the planned durations.
+In-betweens are listed in grey in the timing sheet but not drawn yet. They're posed in stage 4, once you approve the timing.
+The tail flame already flickers on its own clock, as it will in the Pack.</p>
+<p class="hint"><b>"Play as the app will"</b> loops every Animation, because format 1 has no play-once mode. For the ones meant
+to play once (marked "once"), untick it to see a single play that ends on its last Frame.</p>
+<h2>Frame budget</h2>
+<div id="budget"></div>
+<div id="forms"></div>
+<h2>Emotes (timing only; hand-drawn in stage 4)</h2>
+<div id="emotes"></div>
+<script>
+const DATA = /*DATA*/null;
+const IMG = DATA.images;
+const fmt = ms => (ms / 1000).toFixed(2) + ' s';
+
+// budget table
+{
+  let rows = '<table><tr><th>Form</th><th>Animation</th><th>Plays</th><th class="n">Drawings</th><th class="n">Exported Frames</th><th class="n">Length</th></tr>';
+  let td = 0, te = 0;
+  for (const f of DATA.forms) for (const a of f.anims) {
+    rows += `<tr><td>${f.form}</td><td><a href="#${f.form}-${a.name}">${a.name}</a></td><td>${a.once ? 'once' : 'loops'}</td>` +
+            `<td class="n">${a.drawings}</td><td class="n">${a.exported}</td><td class="n">${fmt(a.length_ms)}</td></tr>`;
+    td += a.drawings; te += a.exported;
+  }
+  let ed = 0; for (const e of DATA.emotes) ed += e.sheet.length;
+  rows += `<tr><td>Emotes</td><td>${DATA.emotes.length} Emotes</td><td></td><td class="n">${ed}</td><td class="n">${ed}</td><td></td></tr>`;
+  rows += `<tr><th colspan="3">Total</th><th class="n">${td + ed}</th><th class="n">${te + ed}</th><th></th></tr></table>`;
+  document.getElementById('budget').innerHTML = rows;
+}
+
+function player(a) {
+  const card = document.createElement('div'); card.className = 'card'; card.id = `${a.form}-${a.name}`;
+  const left = document.createElement('div');
+  const stage = document.createElement('div'); stage.className = 'stage light';
+  const img = new Image(); stage.appendChild(img); left.appendChild(stage);
+  const c = document.createElement('div'); c.className = 'controls';
+  c.innerHTML = `<button data-a="play">⏸</button><button data-a="prev">◀</button><button data-a="next">▶</button>
+    <label><input type="checkbox" data-a="loop" checked> Play as the app will</label>
+    <label><input type="checkbox" data-a="mirror"> Mirror</label>
+    <label><input type="checkbox" data-a="sil"> Silhouette</label>
+    <select data-a="scale"><option value="2">2×</option><option value="4" selected>4×</option></select>
+    <select data-a="bg"><option value="light">light app</option><option value="dark">dark app</option><option value="task">taskbar</option></select>
+    ${a.speed ? '<label><input type="checkbox" data-a="move"> Walk across</label>' : ''}`;
+  left.appendChild(c);
+  const right = document.createElement('div');
+  right.innerHTML = `<h3>${a.name}<span class="badge">${a.form}</span><span class="badge">${a.once ? 'meant to play once' : 'loops'}</span>` +
+    `<span class="badge">${fmt(a.length_ms)}</span><span class="badge">${a.drawings} drawings, ${a.exported} exported Frames</span></h3>` +
+    `<p class="note">${a.note}</p>`;
+  let t = '<table><tr><th>#</th><th>Kind</th><th>What happens</th><th class="n">Ticks</th><th class="n">ms</th></tr>';
+  a.sheet.forEach((f, i) => {
+    t += `<tr data-i="${i}"><td class="n">${i + 1}</td><td><span class="kind ${f.kind}">${f.kind}</span></td><td>${f.label}</td>` +
+         `<td class="n">${f.ticks}</td><td class="n">${a.sheet_ms[i]}</td></tr>`;
+  });
+  t += '</table>';
+  right.insertAdjacentHTML('beforeend', t);
+  card.appendChild(left); card.appendChild(right);
+
+  let i = 0, timer = null, playing = true, scale = 4, x = 0, lastT = performance.now();
+  const opt = k => c.querySelector(`[data-a="${k}"]`);
+  const rows = right.querySelectorAll('tr[data-i]');
+  function show() {
+    const f = a.frames[i];
+    img.src = IMG[f.img];
+    img.style.width = a.cell[0] * scale + 'px';
+    img.style.transform = opt('mirror').checked ? 'scaleX(-1)' : '';
+    rows.forEach(r => r.classList.toggle('now', +r.dataset.i === f.sheet));
+  }
+  function tick() {
+    show();
+    if (!playing) return;
+    timer = setTimeout(() => {
+      if (i + 1 >= a.frames.length) {
+        if (opt('loop').checked) i = 0; else { playing = false; opt('play').textContent = '▶'; show(); return; }
+      } else i++;
+      tick();
+    }, a.frames[i].ms);
+  }
+  function move(now) {
+    if (opt('move') && opt('move').checked && playing) {
+      const dt = (now - lastT) / 1000;
+      const dir = opt('mirror').checked ? -1 : 1;
+      x += dir * a.speed * scale * dt;
+      const span = 300 + a.cell[0] * scale;
+      if (x > span / 2) x -= span; if (x < -span / 2) x += span;
+      img.style.left = x + 'px';
+    } else img.style.left = '0px';
+    lastT = now; requestAnimationFrame(move);
+  }
+  c.addEventListener('click', e => {
+    const k = e.target.dataset.a;
+    if (k === 'play') { playing = !playing; e.target.textContent = playing ? '⏸' : '▶'; clearTimeout(timer);
+      if (playing && i + 1 >= a.frames.length && !opt('loop').checked) i = 0; tick(); }
+    if (k === 'prev' || k === 'next') { playing = false; opt('play').textContent = '▶'; clearTimeout(timer);
+      i = (i + (k === 'next' ? 1 : -1) + a.frames.length) % a.frames.length; show(); }
+  });
+  c.addEventListener('change', e => {
+    const k = e.target.dataset.a;
+    if (k === 'scale') scale = +e.target.value;
+    if (k === 'sil') stage.classList.toggle('sil', e.target.checked);
+    if (k === 'bg') stage.className = 'stage ' + e.target.value + (opt('sil').checked ? ' sil' : '');
+    show();
+  });
+  if (a.once) opt('loop').checked = true;
+  tick(); requestAnimationFrame(move);
+  return card;
+}
+
+const root = document.getElementById('forms');
+for (const f of DATA.forms) {
+  const h = document.createElement('h2'); h.textContent = `The ${f.form} Form`; root.appendChild(h);
+  for (const a of f.anims) root.appendChild(player(a));
+}
+
+const eroot = document.getElementById('emotes');
+for (const e of DATA.emotes) {
+  const d = document.createElement('div'); d.className = 'emote';
+  let t = `<h3>${e.name}<span class="badge">${e.mode}</span></h3><div class="ebox"></div><table><tr><th>#</th><th>What happens</th><th class="n">Ticks</th><th class="n">ms</th></tr>`;
+  e.sheet.forEach((f, i) => { t += `<tr data-i="${i}"><td class="n">${i + 1}</td><td>${f.label}</td><td class="n">${f.ticks}</td><td class="n">${e.sheet_ms[i]}</td></tr>`; });
+  d.innerHTML = t + '</table>';
+  eroot.appendChild(d);
+  const box = d.querySelector('.ebox'), rows = d.querySelectorAll('tr[data-i]');
+  let i = 0;
+  (function step() {
+    box.textContent = e.sheet[i].label;
+    rows.forEach(r => r.classList.toggle('now', +r.dataset.i === i));
+    setTimeout(() => { i++; if (i >= e.sheet.length) { i = 0; } step(); }, e.mode === 'one-shot' && i === e.sheet.length - 1 ? e.sheet_ms[i] + 900 : e.sheet_ms[i]);
+  })();
+}
+</script>
