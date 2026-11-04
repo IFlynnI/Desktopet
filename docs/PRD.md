@@ -297,7 +297,7 @@ memory and fixed personality traits. Per-form trait modifiers (§8.3) feed into 
 
 ### 8.4 Animation tiers per form
 - **Core set** (mandatory — the animations the behaviour engine needs; for the hatchling see BEH-06,
-  ≈11 drawn animations, fewer where an action can be done procedurally via REN-03, e.g. look-at) and
+  ≈11 drawn animations, since REN-03 adds only the drop shadow) and
   **extended set** (optional).
 - **Transformation sequences** are their own animation type (hatch, evolve, ultra-mode in/out).
 - Keeps the forms × animations art cost manageable.
@@ -307,7 +307,7 @@ memory and fixed personality traits. Per-form trait modifiers (§8.3) feed into 
 ### 9.1 MVP core (sequential)
 1. **Platform spike** (§7.1) → stack locked. **Done.**
 2. Window, click-through, auto-hide, tray, hotkey, autostart. **Done.**
-3. Packs and the renderer, in five slices:
+3. Packs and the renderer, in five slices. **Done.**
    1. Pack format, `pet-content` and the validator.
    2. `pet-sim` with its phases and the Animation clock, and a renderer with integer scaling and Anchor placement.
    3. The drop shadow.
@@ -448,6 +448,10 @@ fights at your side, and eventually talks with you — while never getting in yo
 | During an Encounter the Overlay catches every click on the Home monitor (2026-11-03) | A stray click mustn't reach an app underneath. The fight stays on the desktop, and Escape forfeits. |
 | A Pack loads completely or not at all; until Settings exist the first by folder name is used; the tray icon is the app's own (2026-11-03) | A half-loaded Pet is harder to understand than a clear error list. The tray must work with no Pack, so you can still quit. |
 | Packs hot-reload in release builds too (2026-11-03) | A file watcher costs nothing while idle and helps anyone making their own art. A Pack that fails validation leaves the old one in place. |
+| Pixel art draws as Mesh2d, never Bevy's Sprite (2026-11-04) | On DX12 the sprite shader reads every draw after the first from the wrong slot (gfx-rs/wgpu#4564). Mesh2d reads it correctly and gives the same pixels. |
+| Half-transparent pixels blend in sRGB, as an image editor shows them (2026-11-04) | Pixel art should look as it was drawn. Opaque pixels are the same either way. |
+| Animation clocks count whole ticks, and every Frame lasts at least one tick, 34 ms (2026-11-04) | A Frame then lasts exactly as long as the Pack says and is never skipped. `pet-pack validate` rejects shorter Frames. |
+| Emotes are asked for with one ordered message, `EmoteRequest` (2026-11-04) | A hide and a show in the same tick then mean what they were sent to mean. The target keeps an Actor on it, so enemies can show Emotes in item 4. |
 
 ## 13. References
 

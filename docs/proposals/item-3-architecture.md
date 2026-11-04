@@ -1,6 +1,6 @@
 # Proposal: architecture and code structure for roadmap item 3
 
-**Status:** agreed on 2026-11-03. All five slices are built.
+**Status:** agreed on 2026-11-03. All five slices are built, and both real-exe suites passed on 2026-11-04.
 
 This covers item 3: Packs and the renderer, in five slices. It applies the target architecture agreed in the same
 session, which is drawn in [docs/architecture/index.html](../architecture/index.html) and recorded in
