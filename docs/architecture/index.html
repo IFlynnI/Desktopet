@@ -1,0 +1,1354 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --ink: #d90000;           /* Reserved for the owner's marks. Nothing else on the page may be red, orange or pink. */
+    --text: #1c2733;
+    --muted: #55636f;
+    --bar: #e9edf2;
+    --line: #a9b4bf;
+    --accent: #1f5fbf;
+    --edge: #3d4c5c;
+    --ui-size: clamp(12px, calc(0.45vw + 6px), 24px);
+    --font: "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif;
+    --mono: Consolas, "Cascadia Mono", Menlo, Monaco, "DejaVu Sans Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; }
+  body { display: flex; flex-direction: column; background: #fff; color: var(--text); font: var(--ui-size)/1.3 var(--font); }
+
+  #bar { flex: none; position: relative; z-index: 2; display: flex; flex-wrap: wrap; align-items: center; gap: .3em .6em;
+         padding: .3em .6em; background: var(--bar); border-bottom: 1px solid var(--line); }
+  #title { flex: 1 1 12em; min-width: 0; margin: 0; font-size: 1.1em; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #tabs { flex: none; display: flex; flex-wrap: wrap; gap: .2em; }
+  #tabs:empty { display: none; }
+  #tabs a { padding: .15em .8em; border: 1px solid var(--line); border-radius: .3em; background: #fff; color: var(--text); text-decoration: none; }
+  #tabs a:hover { border-color: var(--accent); }
+  #tabs a[aria-selected="true"] { background: var(--text); border-color: var(--text); color: #fff; font-weight: 600; }
+  #saveNote { color: var(--accent); font-weight: 600; }
+  #bar button { font: inherit; padding: .15em .7em; border: 1px solid var(--line); border-radius: .3em; background: #fff; color: var(--text); cursor: pointer; }
+  #bar button:hover { border-color: var(--accent); }
+  #pen[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #noteWrap { position: relative; flex: none; width: 19em; height: 1.9em; }
+  #note { position: absolute; inset: 0 0 auto 0; width: 100%; height: 100%; resize: none; padding: .2em .4em; font: inherit; color: var(--text);
+          background: #fff; border: 1px solid var(--line); border-radius: .3em; }
+  #note:focus { height: 8em; outline: 2px solid var(--accent); z-index: 3; }
+
+  #warnings { flex: none; max-height: 5.5em; overflow: auto; margin: 0; padding: .2em .8em; list-style: none; background: #eef0c4; border-bottom: 1px solid var(--line); font-size: .9em; }
+  #warnings:empty { display: none; }
+
+  #stage { flex: 1 1 auto; min-height: 0; position: relative; overflow: hidden; touch-action: none; }
+  #diagram { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; -webkit-user-select: none;
+             font-family: var(--font); text-rendering: geometricPrecision; }
+  .pen #stage { cursor: crosshair; }
+  .pen #diagram * { pointer-events: none; }
+
+  #problems { position: absolute; inset: 0; overflow: auto; padding: 1.5em 2em; background: #f4f6fb; }
+  #problems[hidden] { display: none; }
+  #problems h2 { margin: 0 0 .3em; font-size: 1.4em; }
+  #problems p { margin: 0 0 1em; color: var(--muted); max-width: 60em; }
+  #problems ol { margin: 0; padding: 0; list-style: none; }
+  #problems li { margin: 0 0 .8em; padding: .5em .8em; background: #fff; border-left: .35em solid var(--accent); }
+  #problems b { display: block; }
+  #problems code { display: block; margin-top: .2em; color: var(--muted); font: .95em/1.3 Consolas, "Cascadia Mono", Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+  .band { stroke: none; }
+  .band-0 { fill: #f1f4f8; }
+  .band-1 { fill: #e4eaf0; }
+  .layer-label { font-weight: 700; fill: var(--muted); }
+  .crate { fill: #ffffff; fill-opacity: .55; stroke: #768594; stroke-width: 1.5; }
+  .crate-label { font-weight: 700; fill: #3f4d5b; paint-order: stroke; stroke: #fff; stroke-width: 4px; stroke-linejoin: round; }
+  .node rect.box { stroke: #4b5a69; stroke-width: 1.4; }
+  .node.proposed rect.box { stroke-dasharray: 8 5; stroke-width: 2; }
+  .node .name { font-weight: 700; fill: var(--text); }
+  .node .what { fill: var(--text); }
+  .node .tag { font-weight: 600; fill: #33414f; text-anchor: end; }
+  .node .fields { fill: #ffffff; fill-opacity: .5; stroke: none; }
+  .node .field { font-family: var(--mono); fill: var(--text); white-space: pre; }
+  .line { fill: none; stroke: var(--edge); stroke-width: 1.7; marker-end: url(#arrow); }
+  .edge.proposed.line { stroke-dasharray: 8 5; }
+  .patch { fill: #fdfdf6; fill-opacity: .95; stroke: #c9d1d9; stroke-width: .8; }
+  .edge.proposed .patch { stroke-dasharray: 3 2; }
+  .edge-text { fill: #26323e; text-anchor: middle; }
+
+  .hl .edge { opacity: .22; }
+  .hl .edge.on { opacity: 1; }
+  .edge.on.line { stroke: var(--accent); stroke-width: 3.4; marker-end: url(#arrowOn); }
+  .edge.on .patch { stroke: var(--accent); stroke-width: 1.6; }
+  .node.on rect.box { stroke: var(--accent); stroke-width: 3; }
+
+  /* Screen-space width, so the ink stays bold however far the diagram is scaled. Points are stored in viewBox units. */
+  .stroke { fill: none; stroke: var(--ink); stroke-width: clamp(3px, 0.24vw, 10px); stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+  #ink, #ink * { pointer-events: none; }
+</style>
+</head>
+<body>
+<header id="bar">
+  <h1 id="title">Architecture</h1>
+  <nav id="tabs" role="tablist" aria-label="Views"></nav>
+  <span id="saveNote" role="status"></span>
+  <button id="pen" type="button" aria-pressed="true" title="Toggle the pen (D)">Pen on</button>
+  <button id="undo" type="button" title="Undo (Ctrl+Z)">Undo</button>
+  <button id="clear" type="button" title="Remove every mark on this tab. Undo brings them back.">Clear</button>
+  <div id="noteWrap"><textarea id="note" rows="1" placeholder="Feedback" aria-label="Feedback text" autocomplete="off" spellcheck="true"></textarea></div>
+</header>
+<ul id="warnings"></ul>
+<main id="stage">
+  <svg id="diagram" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Architecture diagram"></svg>
+  <section id="problems" hidden></section>
+</main>
+
+<script>
+  // Registered before the model loads: a stray backtick in the model is a syntax error in architecture.js.
+  window.__archLoadError = null;
+  window.addEventListener('error', function (e) { window.__archLoadError = e.message || 'Script error'; });
+</script>
+<script>
+  // A new URL each load, because a reload otherwise reuses the browser's cached copy of the model.
+  document.write('<script src="architecture.js?' + Date.now() + '" onerror="window.__archLoadError = \'architecture.js could not be loaded\'"><\/script>');
+</script>
+
+<script id="arch-core">
+// Pure logic: parse, lay out, route, place labels, read back. No DOM in this block, so it can be tested outside a browser.
+var ArchCore = (function () {
+  'use strict';
+
+  const STATUSES = ['built', 'item3', 'item4', 'item5', 'item6', 'item7',
+    'track1', 'track2', 'track3', 'track4', 'track5', 'track6', 'track7'];
+  const ID = /^[A-Za-z0-9_][A-Za-z0-9_.-]*$/;
+
+  // ---- Parser ------------------------------------------------------------------------------------------------------
+
+  function tokenize(src) {
+    const tokens = [];
+    let i = 0;
+    while (i < src.length) {
+      if (/\s/.test(src[i])) { i++; continue; }
+      if (src[i] === '"') {
+        const end = src.indexOf('"', i + 1);
+        if (end < 0) return { error: 'unterminated quote: every quoted text needs a closing "' };
+        tokens.push({ str: true, v: src.slice(i + 1, end) });
+        i = end + 1;
+        continue;
+      }
+      let j = i;
+      while (j < src.length && !/[\s"]/.test(src[j])) j++;
+      tokens.push({ str: false, v: src.slice(i, j) });
+      i = j;
+    }
+    return { tokens };
+  }
+
+  const REJECTED = Symbol('rejected node');
+  const isWord = t => !!t && !t.str;
+  const isStr = t => !!t && t.str;
+
+  function parseModel(text) {
+    const errors = [], warnings = [];
+    const model = { version: null, title: '', views: [] };
+    const newView = (id, label, line, implicit) => ({ id, label, title: '', line, implicit, layers: [], crates: [], nodes: [], edges: [] });
+
+    // Ids, cells and the open layer and crate all belong to one view, so each view starts them afresh.
+    // names holds node and crate ids together, because an edge may name either.
+    // attempted holds ids on rejected lines, so one bad node does not also fail every edge that uses it.
+    const newScope = view => ({ view, names: new Map(), layerIds: new Map(), cells: new Map(), attempted: new Set(),
+      layer: null, crate: null, lastNode: null, sawTitle: false, firstContent: null });
+    const defaultScope = newScope(newView('main', '', 0, true));
+    const scopes = [defaultScope];
+    const viewIds = new Map();
+    let scope = defaultScope, sawVersion = false;
+
+    String(text).split(/\r?\n/).forEach(function (raw, index) {
+      const line = index + 1, src = raw.trim();
+      if (!src || src[0] === '#') return;
+      const fail = reason => { errors.push({ line, text: src, reason }); };
+      const tk = tokenize(src);
+      if (tk.error) return fail(tk.error);
+      const t = tk.tokens, kw = t[0].v;
+
+      const claimId = function (id, kind) {
+        const prior = scope.names.get(id);
+        if (prior) { fail(`id "${id}" is already used by the ${prior.kind} on line ${prior.line}`); return false; }
+        scope.names.set(id, { kind, line });
+        return true;
+      };
+
+      if (t[0].str) return fail('a line must start with a keyword: version, title, view, layer, crate, node, field or edge');
+      if (!scope.firstContent && ['layer', 'crate', 'node', 'field', 'edge'].includes(kw)) scope.firstContent = { line, text: src };
+
+      if (kw === 'version') {
+        if (sawVersion) return fail('version is already set; a model has exactly one version line');
+        sawVersion = true;
+        if (t.length !== 2 || !isWord(t[1]) || !/^\d+$/.test(t[1].v)) return fail('version needs a whole number, like: version 3');
+        model.version = Number(t[1].v);
+      } else if (kw === 'title') {
+        if (scope.sawTitle) return fail('title is already set');
+        if (t.length !== 2 || !isStr(t[1])) return fail('title needs one quoted text');
+        scope.sawTitle = true;
+        if (scope === defaultScope) model.title = t[1].v; else scope.view.title = t[1].v;
+      } else if (kw === 'view') {
+        const good = t.length === 3 && isWord(t[1]) && ID.test(t[1].v) && isStr(t[2]);
+        if (!good) fail('expected: view <id> "<label>"');
+        else if (viewIds.has(t[1].v)) fail(`view id "${t[1].v}" is already used on line ${viewIds.get(t[1].v)}`);
+        else viewIds.set(t[1].v, line);
+        // Start a scope even for a bad line, so its nodes are not also reported as clashing with the view before it.
+        scope = newScope(newView(good ? t[1].v : '?', good ? t[2].v : '?', line, false));
+        scopes.push(scope);
+      } else if (kw === 'layer') {
+        scope.lastNode = null;
+        if (t.length !== 3 || !isWord(t[1]) || !ID.test(t[1].v) || !isStr(t[2])) return fail('expected: layer <id> "<label>"');
+        const id = t[1].v;
+        if (scope.layerIds.has(id)) return fail(`layer id "${id}" is already used on line ${scope.layerIds.get(id)}`);
+        scope.layerIds.set(id, line);
+        scope.layer = { id, label: t[2].v, line, crates: [], nodes: [] };
+        scope.crate = null;
+        scope.view.layers.push(scope.layer);
+      } else if (kw === 'crate') {
+        scope.lastNode = null;
+        if (t.length !== 3 || !isWord(t[1]) || !ID.test(t[1].v) || !isStr(t[2])) return fail('expected: crate <id> "<label>"');
+        const id = t[1].v;
+        scope.attempted.add(id);
+        if (!scope.layer) return fail('a crate must come after a layer line');
+        if (!claimId(id, 'crate')) return;
+        scope.crate = { id, label: t[2].v, layer: scope.layer.id, line, nodes: [] };
+        scope.layer.crates.push(id);
+        scope.view.crates.push(scope.crate);
+      } else if (kw === 'node') {
+        scope.lastNode = REJECTED;
+        if (!isWord(t[1]) || !ID.test(t[1].v)) return fail('expected a node id after "node"');
+        const id = t[1].v;
+        scope.attempted.add(id);
+        if (!isStr(t[2])) return fail('expected a quoted label after the node id');
+        if (!isWord(t[3]) || t[3].v[0] === '@') return fail('expected a status after the label: ' + STATUSES.join(', '));
+        if (!STATUSES.includes(t[3].v)) return fail(`unknown status "${t[3].v}"; use one of: ${STATUSES.join(', ')}`);
+        const pos = isWord(t[4]) ? /^@(\d+),(\d+)$/.exec(t[4].v) : null;
+        if (!pos) return fail('expected a position like @2,1 after the status (column,row, both 0 or more)');
+        if (!isStr(t[5])) return fail('expected a quoted "what it does" line after the position');
+        const proposed = isWord(t[6]) && t[6].v === 'proposed';
+        if (t.length > (proposed ? 7 : 6)) return fail(`unexpected text after the description; only the word proposed may follow it`);
+        if (!scope.layer) return fail('a node must come after a layer line');
+        if (!claimId(id, 'node')) return;
+        const col = Number(pos[1]), row = Number(pos[2]), cell = col + ',' + row;
+        if (scope.cells.has(cell)) return fail(`@${cell} already holds "${scope.cells.get(cell)}"; two nodes cannot share the same cell`);
+        scope.cells.set(cell, id);
+        const node = { id, label: t[2].v, status: t[3].v, col, row, what: t[5].v, proposed, fields: [],
+          crate: scope.crate ? scope.crate.id : null, layer: scope.layer.id, line };
+        scope.view.nodes.push(node);
+        scope.lastNode = node;
+        scope.layer.nodes.push(id);
+        if (scope.crate) scope.crate.nodes.push(id);
+      } else if (kw === 'field') {
+        if (t.length !== 2 || !isStr(t[1])) return fail('expected: field "<text>"');
+        if (scope.lastNode === REJECTED) return;  // The node's own line has already been reported.
+        if (!scope.lastNode) return fail('a field must follow a node line, or another field of that node');
+        if (!t[1].v.trim()) return fail('a field needs some text');
+        scope.lastNode.fields.push(t[1].v);
+      } else if (kw === 'edge') {
+        scope.lastNode = null;
+        const q = t.findIndex(x => x.str);
+        const head = (q < 0 ? t : t.slice(0, q)).slice(1).map(x => x.v).join(' ');
+        const m = /^(\S+?)\s*->\s*(\S+)$/.exec(head);
+        if (!m) return fail('expected: edge <from> -> <to> "<what travels>"');
+        if (q < 0) return fail('expected a quoted "what travels" text after the target');
+        const proposed = isWord(t[q + 1]) && t[q + 1].v === 'proposed';
+        if (t.length > q + (proposed ? 2 : 1)) return fail('unexpected text after the quoted label; only the word proposed may follow it');
+        scope.view.edges.push({ from: m[1], to: m[2], label: t[q].v, proposed, line, text: src });
+      } else {
+        fail(`unknown keyword "${kw}"; use version, title, view, layer, crate, node, field or edge`);
+      }
+    });
+
+    // Once any view is named, all content must sit in one. The default view exists only for a model with no view lines.
+    const named = scopes.length > 1;
+    if (named && defaultScope.firstContent) {
+      errors.push({ ...defaultScope.firstContent, reason: 'this line comes before the first view line; move it under a view' });
+    }
+    const live = named ? scopes.slice(1) : scopes;
+    model.views = live.map(sc => sc.view);
+
+    for (const sc of live) {
+      const nodeById = new Map(sc.view.nodes.map(n => [n.id, n]));
+      for (const e of sc.view.edges) {
+        const fail = reason => { errors.push({ line: e.line, text: e.text, reason }); };
+        let ok = true;
+        for (const id of [e.from, e.to]) {
+          if (sc.names.has(id) || sc.attempted.has(id)) continue;
+          ok = false;
+          fail(sc.layerIds.has(id) ? `"${id}" is a layer; an edge can only join nodes and crates`
+            : `unknown id "${id}"; an edge must name a node or a crate in the same view`);
+        }
+        if (!ok) continue;
+        if (e.from === e.to) { fail(`edge from "${e.from}" to itself; there is no route to draw`); continue; }
+        const a = nodeById.get(e.from), b = nodeById.get(e.to);
+        if ((a && a.crate === e.to) || (b && b.crate === e.from)) fail('a node cannot have an edge to its own crate, because it sits inside it');
+      }
+    }
+
+    if (!sawVersion) errors.push({ line: 0, text: '', reason: 'the model has no version line; add one, like: version 1' });
+    if (errors.length === 0) {
+      for (const { layers, crates, nodes, line, id, label, implicit } of model.views) {
+        for (const l of layers) if (!l.nodes.length) errors.push({ line: l.line, text: `layer ${l.id} "${l.label}"`, reason: 'layer has no nodes, so there is no band to draw' });
+        for (const c of crates) if (!c.nodes.length) errors.push({ line: c.line, text: `crate ${c.id} "${c.label}"`, reason: 'crate has no nodes, so there is no box to draw' });
+        if (!nodes.length && !layers.length) {
+          errors.push(implicit ? { line: 0, text: '', reason: 'the model has no nodes yet; add a layer and a node' }
+            : { line, text: `view ${id} "${label}"`, reason: 'view has no nodes, so there is nothing to draw' });
+        }
+      }
+    }
+    errors.sort((a, b) => a.line - b.line);
+    if (errors.length === 0) {
+      for (const view of model.views) {
+        const found = [];
+        collectWarnings(view, new Map(view.nodes.map(n => [n.id, n])), found);
+        for (const w of found) warnings.push({ ...w, view: view.id });
+      }
+    }
+    return { model, errors, warnings };
+  }
+
+  // Things that still draw, but draw something misleading.
+  function collectWarnings(model, nodeById, warnings) {
+    const span = l => { const rows = l.nodes.map(id => nodeById.get(id).row); return [Math.min(...rows), Math.max(...rows)]; };
+    let prev = null;
+    for (const l of model.layers) {
+      if (prev) {
+        const [p0, p1] = span(prev), [c0, c1] = span(l);
+        if (c0 <= p1) warnings.push({ line: l.line, text: `layer ${l.id}`, reason:
+          `layer "${l.id}" (rows ${c0}-${c1}) overlaps or sits above "${prev.id}" (rows ${p0}-${p1}); bands are full width and file order is top to bottom, so use higher rows` });
+      }
+      prev = l;
+    }
+    const box = c => {
+      const ns = c.nodes.map(id => nodeById.get(id));
+      return { c0: Math.min(...ns.map(n => n.col)), c1: Math.max(...ns.map(n => n.col)), r0: Math.min(...ns.map(n => n.row)), r1: Math.max(...ns.map(n => n.row)) };
+    };
+    const boxes = model.crates.map(c => ({ crate: c, b: box(c) }));
+    for (const { crate, b } of boxes) for (const n of model.nodes) {
+      if (n.crate !== crate.id && n.col >= b.c0 && n.col <= b.c1 && n.row >= b.r0 && n.row <= b.r1) {
+        warnings.push({ line: n.line, text: `node ${n.id}`, reason: `node "${n.id}" sits inside the box of crate "${crate.id}" but is not in that crate` });
+      }
+    }
+    for (let i = 0; i < boxes.length; i++) for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i].b, b = boxes[j].b;
+      if (a.c0 <= b.c1 && b.c0 <= a.c1 && a.r0 <= b.r1 && b.r0 <= a.r1) {
+        warnings.push({ line: boxes[j].crate.line, text: `crate ${boxes[j].crate.id}`, reason: `crate "${boxes[j].crate.id}" overlaps crate "${boxes[i].crate.id}"` });
+      }
+    }
+  }
+
+  // ---- Text --------------------------------------------------------------------------------------------------------
+
+  const WRAP_SAFETY = 1.03;  // The browser's text width varies a little with scale. Never let a line touch the box edge.
+
+  function wrap(text, maxWidth, measure, size, weight) {
+    const fits = s => measure(s, size, weight) * WRAP_SAFETY <= maxWidth;
+    const lines = [];
+    let cur = '';
+    for (let word of String(text).split(/\s+/).filter(Boolean)) {
+      const next = cur ? cur + ' ' + word : word;
+      if (fits(next)) { cur = next; continue; }
+      if (cur) lines.push(cur);
+      while (!fits(word) && word.length > 1) {
+        let n = word.length - 1;
+        while (n > 1 && !fits(word.slice(0, n))) n--;
+        lines.push(word.slice(0, n));
+        word = word.slice(n);
+      }
+      cur = word;
+    }
+    if (cur) lines.push(cur);
+    return lines;
+  }
+
+  // A field line stays exactly as written if it fits. Otherwise it wraps, and continuation lines hang under the first.
+  function wrapField(text, width, measure) {
+    const mono = (t, size, weight) => measure(t, size, weight, 'mono');
+    const size = FONTS.field;
+    if (mono(text, size, 400) * WRAP_SAFETY <= width) return [{ text, indent: 0 }];
+    const body = text.trim();
+    const lead = mono(text.slice(0, text.indexOf(body)), size, 400);
+    const hang = mono('  ', size, 400);
+    return wrap(body, width - lead - hang, mono, size, 400).map((t, i) => ({ text: t, indent: i ? lead + hang : lead }));
+  }
+
+  // ---- Layout constants (viewBox units) ------------------------------------------------------------------------------
+
+  const FONTS = { label: 17, what: 14.5, status: 11, edge: 13, crate: 14, layer: 16, legend: 14, field: 13 };
+  const NODE_WIDTHS = [176, 188, 200, 212, 224, 236, 252, 268];
+  const REFERENCE = { w: 1920, h: 1000 };  // The viewport a model is proportioned for. It never reads the live window: the viewBox must not move on resize.
+  const MAX_ROW_STRETCH = 70;
+  const MAX_FIELD_COLUMN = 420;  // A field line may widen its column this far. Past that it wraps.
+  const LINE_FIELD = 16, FIELD_GAP = 8;
+  const PAD_X = 10, PAD_Y = 7, LINE_LABEL = 20, LINE_WHAT = 18, MIN_NODE_H = 76;
+  const LAYER_W = 104;       // Left column of every band, holding the layer label. Routes stay out of it.
+  const CRATE_PAD = 9, CRATE_TITLE = 20;
+  const MARGIN = 5, TRACK = 15, MIN_V_GAP = 66, LABEL_LANE = 8;
+  const LEGEND_GAP = 8, LEGEND_ROW = 22;
+  const LABEL_PAD_X = 4, LABEL_PAD_Y = 1, LABEL_LINE = 15;
+
+  // ---- Router ------------------------------------------------------------------------------------------------------
+  //
+  // Routing runs on a lattice twice the grid's resolution. A cell (c,r) is lattice point (2c+1, 2r+1); even coordinates
+  // are the gaps between cells. Every lattice line is a channel. An empty cell is free to cross and a node's cell is
+  // not, so a route cannot pass through a node. Geometry comes later: first each edge picks channels, then each channel
+  // gives its edges separate tracks, and only then are the gaps sized to fit those tracks.
+
+  const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+  const COST_BEND = 3, COST_SHARE = 1.5, COST_CROSS = 0.7;
+
+  class Heap {
+    constructor() { this.a = []; }
+    get size() { return this.a.length; }
+    push(item) {
+      const a = this.a; a.push(item);
+      let i = a.length - 1;
+      while (i > 0) {
+        const p = (i - 1) >> 1;
+        if (a[p].cost <= a[i].cost) break;
+        [a[p], a[i]] = [a[i], a[p]]; i = p;
+      }
+    }
+    pop() {
+      const a = this.a, top = a[0], last = a.pop();
+      if (a.length) {
+        a[0] = last;
+        let i = 0;
+        for (;;) {
+          const l = 2 * i + 1, r = l + 1;
+          let m = i;
+          if (l < a.length && a[l].cost < a[m].cost) m = l;
+          if (r < a.length && a[r].cost < a[m].cost) m = r;
+          if (m === i) break;
+          [a[m], a[i]] = [a[i], a[m]]; i = m;
+        }
+      }
+      return top;
+    }
+  }
+
+  function routeEdges(model, C, R) {
+    const LW = 2 * C + 1, LH = 2 * R + 1;
+    const pointId = (x, y) => x + y * LW;
+    const blocked = new Set(model.nodes.map(n => pointId(2 * n.col + 1, 2 * n.row + 1)));
+    const use = [new Map(), new Map()];  // Per axis (0 horizontal, 1 vertical): how many routes run through a lattice point.
+    const useAt = (axis, id) => use[axis].get(id) || 0;
+
+    const nodeById = new Map(model.nodes.map(n => [n.id, n]));
+    const crateById = new Map(model.crates.map(c => [c.id, c]));
+    const boxOf = function (id) {
+      const n = nodeById.get(id);
+      if (n) return { x0: 2 * n.col + 1, x1: 2 * n.col + 1, y0: 2 * n.row + 1, y1: 2 * n.row + 1 };
+      const ns = crateById.get(id).nodes.map(i => nodeById.get(i));
+      return { x0: 2 * Math.min(...ns.map(k => k.col)) + 1, x1: 2 * Math.max(...ns.map(k => k.col)) + 1,
+               y0: 2 * Math.min(...ns.map(k => k.row)) + 1, y1: 2 * Math.max(...ns.map(k => k.row)) + 1 };
+    };
+    const inBox = (b, x, y) => x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1;
+    const inRange = (x, y) => x >= 0 && y >= 0 && x < LW && y < LH;
+
+    function findPath(src, dst) {
+      const stateId = (x, y, d) => pointId(x, y) * 4 + d;
+      const best = new Map(), prev = new Map(), heap = new Heap();
+      let end = null;
+      const stepCost = function (x, y, d) {
+        const axis = d % 2, id = pointId(x, y);
+        return 1 + COST_SHARE * useAt(axis, id) + COST_CROSS * useAt(1 - axis, id);
+      };
+      const relax = function (x, y, d, cost, from) {
+        const s = stateId(x, y, d);
+        if (best.has(s) && best.get(s) <= cost) return;
+        best.set(s, cost); prev.set(s, from);
+        heap.push({ cost, x, y, d });
+      };
+      for (let x = src.x0; x <= src.x1; x += 2) for (let y = src.y0; y <= src.y1; y += 2) {
+        DIRS.forEach(function ([dx, dy], d) {
+          const nx = x + dx, ny = y + dy;
+          if (inBox(src, nx, ny) || !inRange(nx, ny)) return;
+          relax(nx, ny, d, stepCost(nx, ny, d), { origin: [x, y] });
+        });
+      }
+      while (heap.size) {
+        const u = heap.pop();
+        if (end && u.cost >= end.cost) break;
+        if (best.get(stateId(u.x, u.y, u.d)) < u.cost) continue;
+        for (let nd = 0; nd < 4; nd++) {
+          if (nd === (u.d + 2) % 4) continue;
+          const nx = u.x + DIRS[nd][0], ny = u.y + DIRS[nd][1];
+          if (!inRange(nx, ny) || inBox(src, nx, ny)) continue;
+          const cost = u.cost + stepCost(nx, ny, nd) + (nd === u.d ? 0 : COST_BEND);
+          if (inBox(dst, nx, ny)) {
+            const square = nd % 2 === 0 ? ny % 2 === 1 : nx % 2 === 1;  // Enter a box on a cell's centre line, not in a gap.
+            if (square && (!end || cost < end.cost)) end = { cost, x: nx, y: ny, last: { x: u.x, y: u.y, d: u.d } };
+            continue;
+          }
+          if (blocked.has(pointId(nx, ny))) continue;
+          relax(nx, ny, nd, cost, { x: u.x, y: u.y, d: u.d });
+        }
+      }
+      if (!end) return null;
+      const path = [[end.x, end.y]];
+      let at = end.last;
+      for (;;) {
+        path.push([at.x, at.y]);
+        const p = prev.get(stateId(at.x, at.y, at.d));
+        if (p.origin) { path.push(p.origin); break; }
+        at = p;
+      }
+      return path.reverse();
+    }
+
+    const pathAxes = path => path.slice(1).map((p, i) => (p[1] === path[i][1] ? 0 : 1));
+    const mark = function (path, delta) {
+      pathAxes(path).forEach(function (axis, i) {
+        for (const [x, y] of [path[i], path[i + 1]]) {
+          const id = pointId(x, y);
+          if (blocked.has(id)) continue;
+          use[axis].set(id, useAt(axis, id) + delta);
+        }
+      });
+    };
+
+    const routes = model.edges.map(e => ({ edge: e, src: boxOf(e.from), dst: boxOf(e.to), path: null }));
+    const reach = r => Math.abs(r.src.x0 - r.dst.x0) + Math.abs(r.src.y0 - r.dst.y0);
+    const order = routes.map((r, i) => i).sort((a, b) => reach(routes[a]) - reach(routes[b]) || a - b);
+    for (let pass = 0; pass < 3; pass++) {
+      for (const i of order) {
+        const r = routes[i];
+        if (r.path) mark(r.path, -1);
+        r.path = findPath(r.src, r.dst);
+        if (r.path) mark(r.path, 1);
+      }
+    }
+    return routes;
+  }
+
+  function toRuns(path) {
+    const runs = [];
+    for (let i = 1; i < path.length; i++) {
+      const a = path[i - 1], b = path[i];
+      const axis = a[1] === b[1] ? 'h' : 'v';
+      const along = p => (axis === 'h' ? p[0] : p[1]);
+      const last = runs[runs.length - 1];
+      if (last && last.axis === axis) last.b = along(b);
+      else runs.push({ axis, chan: axis === 'h' ? a[1] : a[0], a: along(a), b: along(b) });
+    }
+    return runs;
+  }
+
+  // Give runs that share a channel and overlap along it different tracks. Runs meeting inside a box do not conflict.
+  function assignTracks(routes) {
+    const channels = new Map();
+    routes.forEach(function (r) {
+      if (!r.runs) return;
+      r.runs.forEach(function (run, k) {
+        let lo = Math.min(run.a, run.b), hi = Math.max(run.a, run.b);
+        const first = k === 0, last = k === r.runs.length - 1;
+        if (first) { if (run.a < run.b) lo += 0.25; else hi -= 0.25; }
+        if (last) { if (run.a < run.b) hi -= 0.25; else lo += 0.25; }
+        const key = run.axis + run.chan;
+        if (!channels.has(key)) channels.set(key, []);
+        channels.get(key).push({ run, lo, hi });
+      });
+    });
+    const counts = new Map();
+    for (const [key, items] of channels) {
+      items.sort((p, q) => p.lo - q.lo || p.hi - q.hi);
+      const ends = [];
+      for (const it of items) {
+        let t = ends.findIndex(e => e < it.lo);
+        if (t < 0) { t = ends.length; ends.push(it.hi); } else ends[t] = it.hi;
+        it.run.track = t;
+      }
+      counts.set(key, ends.length);
+    }
+    return counts;
+  }
+
+  // ---- Layout ------------------------------------------------------------------------------------------------------
+
+  function layoutModel(model, measure) {
+    const C = Math.max(...model.nodes.map(n => n.col)) + 1;
+    const R = Math.max(...model.nodes.map(n => n.row)) + 1;
+    const F = FONTS;
+
+    // The widest field in a column sets that column's width, so that a data shape reads on one line wherever it can.
+    const fieldNeed = new Array(C).fill(0);
+    for (const n of model.nodes) for (const field of n.fields) {
+      const need = Math.ceil(measure(field, F.field, 400, 'mono') * WRAP_SAFETY) + 2 * PAD_X;
+      fieldNeed[n.col] = Math.max(fieldNeed[n.col], Math.min(need, MAX_FIELD_COLUMN));
+    }
+
+    const textAt = function (nodeW) {
+      const colW = fieldNeed.map(need => Math.max(nodeW, need));
+      const rowH = new Array(R).fill(MIN_NODE_H), text = new Map();
+      let wordsIntact = true;
+      for (const n of model.nodes) {
+        const w = colW[n.col];
+        const tagW = measure(n.status, F.status, 600) + 8;
+        const labelLines = wrap(n.label, w - 2 * PAD_X - tagW, measure, F.label, 700);
+        const whatLines = wrap(n.what, w - 2 * PAD_X, measure, F.what, 400);
+        const fieldLines = n.fields.flatMap(field => wrapField(field, w - 2 * PAD_X, measure));
+        if (whatLines.join(' ') !== n.what.trim().replace(/\s+/g, ' ')) wordsIntact = false;
+        const fieldBlock = fieldLines.length ? FIELD_GAP + fieldLines.length * LINE_FIELD : 0;
+        const textHeight = 2 * PAD_Y + labelLines.length * LINE_LABEL + 2 + whatLines.length * LINE_WHAT + fieldBlock;
+        text.set(n.id, { labelLines, whatLines, fieldLines, textHeight });
+        rowH[n.row] = Math.max(rowH[n.row], textHeight);
+      }
+      return { colW, rowH, text, wordsIntact };
+    };
+    const totalW = colW => gapsW + colW.reduce((sum, w) => sum + w, 0);
+
+    const routes = routeEdges(model, C, R);
+    for (const r of routes) r.runs = r.path ? toRuns(r.path) : null;
+    const counts = assignTracks(routes);
+
+    // A straight edge between side-by-side nodes can only carry its label inside the gap, so the gap must fit its longest word.
+    const gapNeed = new Array(C + 1).fill(0);
+    for (const r of routes) {
+      if (r.runs && r.runs.length === 1 && r.runs[0].axis === 'h' && Math.abs(r.runs[0].a - r.runs[0].b) === 2) {
+        const words = r.edge.label.split(/\s+/);
+        const widest = Math.max(0, ...words.map(w => measure(w, F.edge, 400)));
+        const shared = (counts.get('h' + r.runs[0].chan) || 1) > 1;  // Stacked labels have no height to spare for wrapping.
+        const want = shared ? Math.max(widest, Math.min(measure(r.edge.label, F.edge, 400), 130)) : widest;
+        const gap = (r.runs[0].a + r.runs[0].b) / 4;
+        gapNeed[gap] = Math.max(gapNeed[gap], want * WRAP_SAFETY + 2 * LABEL_PAD_X + 8);
+      }
+    }
+
+    // Columns and vertical gaps.
+    const vSizes = [], hSizes = [];
+    for (let i = 0; i <= C; i++) {
+      const outerL = i === 0, outerR = i === C;
+      const padL = outerL ? MARGIN : CRATE_PAD + MARGIN, padR = outerR ? MARGIN : CRATE_PAD + MARGIN;
+      const inner = padL + padR + Math.max(counts.get('v' + 2 * i) || 0, 1) * TRACK;
+      vSizes.push({ padL, padR, w: Math.max(inner, outerL || outerR ? 0 : MIN_V_GAP, gapNeed[i]) });
+    }
+    for (let j = 0; j <= R; j++) {
+      const outerT = j === 0, outerB = j === R;
+      const padT = outerT ? MARGIN : CRATE_PAD + MARGIN, padB = outerB ? MARGIN : CRATE_PAD + CRATE_TITLE + MARGIN;
+      hSizes.push({ padT, padB, h: padT + padB + Math.max(counts.get('h' + 2 * j) || 0, 1) * TRACK + (outerT || outerB ? 0 : LABEL_LANE) });
+    }
+    const gapsW = LAYER_W + vSizes.reduce((sum, g) => sum + g.w, 0);
+    const gapsH = hSizes.reduce((sum, g) => sum + g.h, 0) + 2 * LEGEND_GAP + LEGEND_ROW;
+    const totalH = rowH => gapsH + rowH.reduce((sum, h) => sum + h, 0);
+
+    // Narrower boxes wrap to more lines, wider ones make the whole diagram scale down. Take the width that leaves text largest.
+    let sized = null, bestFit = -Infinity;
+    for (const w of NODE_WIDTHS) {
+      const t = textAt(w);
+      const fit = Math.min(REFERENCE.w / totalW(t.colW), REFERENCE.h / totalH(t.rowH)) - (t.wordsIntact ? 0 : 1);
+      if (fit > bestFit) { bestFit = fit; sized = t; }
+    }
+    const { colW, rowH, text } = sized;
+
+    // A wide model leaves height unused at the reference size. Give it to the row gaps, where labels and routes need it.
+    if (R > 1) {
+      const wanted = totalW(colW) * REFERENCE.h / REFERENCE.w - totalH(rowH);
+      const each = Math.min(Math.max(0, wanted) / (R - 1), MAX_ROW_STRETCH);
+      for (let j = 1; j < R; j++) hSizes[j].h += each;
+    }
+
+    const vGap = [], colX = [];
+    let x = LAYER_W;
+    for (let i = 0; i <= C; i++) {
+      const g = vSizes[i];
+      vGap.push({ start: x, end: x + g.w, centre: x + g.padL + (g.w - g.padL - g.padR) / 2 });
+      x += g.w;
+      if (i < C) { colX.push(x); x += colW[i]; }
+    }
+    const W = x;
+
+    const hGap = [], rowY = [];
+    let y = 0;
+    for (let j = 0; j <= R; j++) {
+      const g = hSizes[j];
+      hGap.push({ start: y, end: y + g.h, centre: y + g.padT + (g.h - g.padT - g.padB) / 2 });
+      y += g.h;
+      if (j < R) { rowY.push(y); y += rowH[j]; }
+    }
+    const gridBottom = y;
+
+    const nodes = Object.create(null);
+    for (const n of model.nodes) {
+      const t = text.get(n.id);
+      nodes[n.id] = { x: colX[n.col], y: rowY[n.row], w: colW[n.col], h: rowH[n.row],
+        labelLines: t.labelLines, whatLines: t.whatLines, fieldLines: t.fieldLines, textHeight: t.textHeight };
+    }
+
+    const crates = Object.create(null);
+    const titleBoxes = [];
+    for (const c of model.crates) {
+      const ns = c.nodes.map(id => nodes[id]);
+      const left = Math.min(...ns.map(b => b.x)) - CRATE_PAD, right = Math.max(...ns.map(b => b.x + b.w)) + CRATE_PAD;
+      const top = Math.min(...ns.map(b => b.y)) - CRATE_PAD - CRATE_TITLE, bottom = Math.max(...ns.map(b => b.y + b.h)) + CRATE_PAD;
+      const title = { x: left + 8, y: top + 3, w: measure(c.label, F.crate, 700) + 4, h: CRATE_TITLE - 4 };
+      crates[c.id] = { x: left, y: top, w: right - left, h: bottom - top, title };
+      titleBoxes.push(title);
+    }
+
+    const layers = Object.create(null);
+    model.layers.forEach(function (l, i) {
+      const rows = l.nodes.map(id => model.nodes.find(n => n.id === id).row);
+      const r0 = Math.min(...rows), r1 = Math.max(...rows);
+      const top = r0 === 0 ? 0 : hGap[r0].centre;
+      const bottom = r1 === R - 1 ? gridBottom : hGap[r1 + 1].centre;
+      layers[l.id] = { x: 0, y: top, w: W, h: bottom - top, tint: i % 2,
+        lines: wrap(l.label, LAYER_W - 16, measure, F.layer, 700) };
+    });
+
+    const chanPos = function (axis, chan, track) {
+      const n = counts.get(axis + chan) || 1;
+      const off = t => t - (n - 1) / 2;
+      if (axis === 'v') {
+        if (chan % 2 === 0) return vGap[chan / 2].centre + off(track) * TRACK;
+        const c = (chan - 1) / 2;
+        const spacing = Math.min(TRACK, n > 1 ? colW[c] * 0.8 / (n - 1) : TRACK);
+        return colX[c] + colW[c] / 2 + off(track) * spacing;
+      }
+      if (chan % 2 === 0) return hGap[chan / 2].centre + off(track) * TRACK;
+      const r = (chan - 1) / 2;
+      const spacing = n > 1 ? Math.min(36, rowH[r] * 0.6 / (n - 1)) : 0;  // Wide apart: each of these lines carries its own label.
+      return rowY[r] + rowH[r] / 2 + off(track) * spacing;
+    };
+
+    const rectOf = id => nodes[id] || crates[id];
+    const edgeOnBox = function (run, rect, atStart) {
+      const forward = run.a < run.b;
+      const high = atStart ? forward : !forward;  // Leaving forwards, or arriving backwards, uses the box's far side.
+      return run.axis === 'h' ? (high ? rect.x + rect.w : rect.x) : (high ? rect.y + rect.h : rect.y);
+    };
+
+    const edges = routes.map(function (r) {
+      const e = r.edge, from = rectOf(e.from), to = rectOf(e.to);
+      let points;
+      if (r.runs) {
+        const pos = r.runs.map(run => chanPos(run.axis, run.chan, run.track));
+        const pt = (axis, along, across) => (axis === 'h' ? [along, across] : [across, along]);
+        const first = r.runs[0], last = r.runs[r.runs.length - 1];
+        points = [pt(first.axis, edgeOnBox(first, from, true), pos[0])];
+        for (let k = 1; k < r.runs.length; k++) {
+          points.push(r.runs[k].axis === 'v' ? [pos[k], pos[k - 1]] : [pos[k - 1], pos[k]]);
+        }
+        points.push(pt(last.axis, edgeOnBox(last, to, false), pos[pos.length - 1]));
+      } else {
+        // Only reachable when a warning has already said a foreign node sits inside a crate target.
+        points = [[from.x + from.w / 2, from.y + from.h / 2], [to.x + to.w / 2, to.y + to.h / 2]];
+      }
+      return { key: e.from + '->' + e.to, from: e.from, to: e.to, label: e.label, proposed: e.proposed, points, labelBox: null };
+    });
+
+    const legend = layoutLegend(model, W, gridBottom + LEGEND_GAP, measure);
+    const viewBox = { x: 0, y: 0, w: W, h: legend.bottom + LEGEND_GAP };
+
+    const guides = {
+      xs: [...vGap.map(g => g.centre), ...colX.map((cx, c) => cx + colW[c] / 2)],
+      ys: [...hGap.map(g => g.centre), ...rowY.map((ry, r) => ry + rowH[r] / 2)],
+    };
+    placeLabels(edges, Object.values(nodes), titleBoxes, viewBox, guides, measure);
+
+    return { viewBox, nodes, crates, layers, edges, legend, fonts: FONTS, lineHeights: { label: LINE_LABEL, what: LINE_WHAT, edge: LABEL_LINE, field: LINE_FIELD }, fieldGap: FIELD_GAP, padX: PAD_X, padY: PAD_Y };
+  }
+
+  function legendName(status) {
+    const m = /^(item|track)(\d+)$/.exec(status);
+    if (m) return (m[1] === 'item' ? 'Item ' : 'Track ') + m[2];
+    return status[0].toUpperCase() + status.slice(1);
+  }
+
+  function layoutLegend(model, width, top, measure) {
+    const used = new Set(model.nodes.map(n => n.status));
+    const entries = STATUSES.filter(s => used.has(s)).map(s => ({ key: s, text: legendName(s) }));
+    entries.push({ key: 'proposed', text: 'Proposed: not agreed yet (dashed)' });
+    const items = [];
+    let x = LAYER_W, y = top;
+    for (const en of entries) {
+      const tw = measure(en.text, FONTS.legend, 400) + 4;
+      const w = 28 + tw;
+      if (x + w > width - 8 && x > LAYER_W) { x = LAYER_W; y += LEGEND_ROW; }
+      items.push({ key: en.key, text: en.text, x, y, w, h: 18 });
+      x += w + 18;
+    }
+    return { items, bottom: y + 18 };
+  }
+
+  // ---- Edge labels -------------------------------------------------------------------------------------------------
+
+  const hits = (a, b, pad) => a.x < b.x + b.w + pad && b.x < a.x + a.w + pad && a.y < b.y + b.h + pad && b.y < a.y + a.h + pad;
+
+  function placeLabels(edges, nodeRects, titles, vb, guides, measure) {
+    const size = FONTS.edge;
+    const allSegs = edges.map(e => e.points.slice(1).map((p, i) => [e.points[i], p]));
+    const shapes = edges.map(function (e) {
+      const full = measure(e.label, size, 400);
+      const widest = Math.max(0, ...e.label.split(/\s+/).map(w => measure(w, size, 400))) * WRAP_SAFETY;
+      const options = [];
+      const seen = new Set();
+      for (const width of [Infinity, 240, 190, 150, 118, 92, 70, 54]) {
+        if (width !== Infinity && (width >= full || width < widest)) continue;  // Wrapping never splits a word.
+        const lines = width === Infinity ? [e.label] : wrap(e.label, width, measure, size, 400);
+        const sig = lines.join('\n');
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        const w = Math.max(...lines.map(l => measure(l, size, 400))) * WRAP_SAFETY + 2 * LABEL_PAD_X;
+        options.push({ lines, w, h: lines.length * LABEL_LINE + 2 * LABEL_PAD_Y });
+      }
+      return options;
+    });
+
+    const placed = new Array(edges.length).fill(null);
+    const length = i => allSegs[i].reduce((s, [a, b]) => s + Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]), 0);
+    const order = edges.map((e, i) => i).sort((a, b) => length(a) - length(b) || a - b);
+    const SPOTS = [0.5, 0.38, 0.62, 0.26, 0.74, 0.16, 0.84];
+
+    const scoreRect = function (r, i, base) {
+      if (r.x < 0 || r.y < 0 || r.x + r.w > vb.w || r.y + r.h > vb.h) return Infinity;
+      let cost = base;
+      for (const n of nodeRects) if (hits(r, n, 2)) cost += 1e5;
+      for (let j = 0; j < placed.length; j++) if (j !== i && placed[j] && hits(r, placed[j], 3)) cost += 2e5;
+      for (const t of titles) if (hits(r, t, 1)) cost += 300;
+      for (let j = 0; j < allSegs.length; j++) {
+        if (j === i) continue;
+        for (const [a, b] of allSegs[j]) {
+          const s = { x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: Math.abs(a[0] - b[0]), h: Math.abs(a[1] - b[1]) };
+          if (!hits(r, s, 0)) continue;
+          const vertical = s.w < 0.01;
+          const covered = vertical ? Math.min(r.y + r.h, s.y + s.h) - Math.max(r.y, s.y) : Math.min(r.x + r.w, s.x + s.w) - Math.max(r.x, s.x);
+          cost += 10 + Math.max(0, covered - 10) * 0.5;  // Crossing a line is cheap. Lying along one hides it.
+        }
+      }
+      return cost;
+    };
+
+    const place = function (i) {
+      const e = edges[i];
+      if (!e.label) {
+        const p = e.points[0];
+        placed[i] = null;
+        e.labelBox = { x: p[0], y: p[1], w: 0, h: 0, lines: [] };
+        return;
+      }
+      let bestCost = Infinity, best = null;
+      const segs = allSegs[i];
+      segs.forEach(function ([a, b], k) {
+        const len = Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]);
+        const horizontal = Math.abs(a[1] - b[1]) < 0.01;
+        // Beyond fixed spots along the run, try where it passes a gap: that is where a wide label has room.
+        const start = horizontal ? a[0] : a[1], end = horizontal ? b[0] : b[1];
+        const spots = SPOTS.slice();
+        for (const g of horizontal ? guides.xs : guides.ys) {
+          const t = (g - start) / ((end - start) || 1);
+          if (t > 0.04 && t < 0.96) spots.push(t);
+        }
+        for (const t of spots) {
+          const px = a[0] + (b[0] - a[0]) * t, py = a[1] + (b[1] - a[1]) * t;
+          shapes[i].forEach(function (s, shapeIndex) {
+            // A label may hang to one side of a vertical line, so parallel lines can each keep their label beside them.
+            for (const side of horizontal || s.w < 30 ? [0] : [0, -1, 1]) {
+              const r = { x: px - s.w / 2 + side * (s.w / 2 - 9), y: py - s.h / 2, w: s.w, h: s.h };
+              // Prefer the middle of a long run, on one line. A label that fills its run hides the line it names.
+              let base = Math.abs(t - 0.5) * 16 + shapeIndex * 5 - Math.min(len, 300) * 0.04 + Math.abs(side) * 6;
+              if (horizontal && s.w > len * 0.8) base += 22;
+              if (!horizontal && s.h > len * 0.7) base += 22;
+              if (k === segs.length - 1 && (1 - t) * len < 26 + (horizontal ? s.w / 2 : s.h / 2)) base += 40;  // Keep clear of the arrowhead.
+              const cost = scoreRect(r, i, base);
+              if (cost < bestCost) { bestCost = cost; best = { ...r, lines: s.lines }; }
+            }
+          });
+        }
+      });
+      if (!best) {
+        const [a, b] = segs[Math.floor(segs.length / 2)], s = shapes[i][shapes[i].length - 1];
+        best = { x: (a[0] + b[0]) / 2 - s.w / 2, y: (a[1] + b[1]) / 2 - s.h / 2, w: s.w, h: s.h, lines: s.lines };
+      }
+      placed[i] = best;
+      e.labelBox = best;
+    };
+
+    // The first pass sees only earlier labels. The second lets each one move now that it can see all the others.
+    for (const i of order) place(i);
+    for (const i of order) { placed[i] = null; place(i); }
+  }
+
+  // ---- Read-back ---------------------------------------------------------------------------------------------------
+
+  const NEAR = 14;  // How close, in viewBox units, a stroke must pass to count as touching an edge.
+
+  function pointToSegment(px, py, a, b) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], len = dx * dx + dy * dy;
+    const t = len ? Math.max(0, Math.min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / len)) : 0;
+    return Math.hypot(px - a[0] - t * dx, py - a[1] - t * dy);
+  }
+
+  function segmentsCross(a, b, c, d) {
+    const side = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+    const s1 = side(a, b, c), s2 = side(a, b, d), s3 = side(c, d, a), s4 = side(c, d, b);
+    return s1 * s2 < 0 && s3 * s4 < 0;
+  }
+
+  // Segment distance, not point distance: a fast stroke has few points, and a slash across a line may have none near it.
+  function segmentDistance(a, b, c, d) {
+    if (segmentsCross(a, b, c, d)) return 0;
+    return Math.min(pointToSegment(a[0], a[1], c, d), pointToSegment(b[0], b[1], c, d),
+                    pointToSegment(c[0], c[1], a, b), pointToSegment(d[0], d[1], a, b));
+  }
+
+  function insidePolygon(px, py, poly) {
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const a = poly[i], b = poly[j];
+      if ((a[1] > py) !== (b[1] > py) && px < (b[0] - a[0]) * (py - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside;
+    }
+    return inside;
+  }
+
+  const round1 = v => Math.round(v * 10) / 10;
+
+  function readStroke(flat, layout) {
+    const pts = [];
+    for (let i = 0; i + 1 < flat.length; i += 2) pts.push([flat[i], flat[i + 1]]);
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+    const box = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+
+    const touchedNodes = [], around = [];
+    const span = Math.max(box.w, box.h);
+    const closed = pts.length >= 4 && Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]) <= 0.3 * span;
+    for (const id of Object.keys(layout.nodes)) {
+      const n = layout.nodes[id];
+      if (x0 <= n.x + n.w && x1 >= n.x && y0 <= n.y + n.h && y1 >= n.y) {
+        touchedNodes.push(id);
+        if (closed && insidePolygon(n.x + n.w / 2, n.y + n.h / 2, pts)) around.push(id);
+      }
+    }
+
+    const strokeSegs = pts.length === 1 ? [[pts[0], pts[0]]] : pts.slice(1).map((p, i) => [pts[i], p]);
+    const touchedEdges = [];
+    for (const e of layout.edges) {
+      if (touchedEdges.includes(e.key)) continue;
+      const shape = e.points.slice(1).map((p, i) => [e.points[i], p]);
+      const b = e.labelBox;
+      if (b && b.w) {
+        const c = [[b.x, b.y], [b.x + b.w, b.y], [b.x + b.w, b.y + b.h], [b.x, b.y + b.h]];
+        c.forEach((p, i) => shape.push([p, c[(i + 1) % 4]]));
+      }
+      if (strokeSegs.some(([p, q]) => shape.some(([r, s]) => segmentDistance(p, q, r, s) <= NEAR))) touchedEdges.push(e.key);
+    }
+
+    return { bbox: { x: round1(box.x), y: round1(box.y), w: round1(box.w), h: round1(box.h) }, points: pts.length, touchedNodes, around, touchedEdges };
+  }
+
+  function readBack(state, layout) {
+    const strokes = state.strokes.map(s => readStroke(s.points, layout));
+    const nodeSet = new Set(), edgeSet = new Set();
+    for (const s of strokes) { s.touchedNodes.forEach(id => nodeSet.add(id)); s.touchedEdges.forEach(k => edgeSet.add(k)); }
+    return {
+      version: state.version, strokes, text: state.text,
+      touchedNodes: Object.keys(layout.nodes).filter(id => nodeSet.has(id)),
+      touchedEdges: layout.edges.map(e => e.key).filter((k, i, all) => edgeSet.has(k) && all.indexOf(k) === i),
+    };
+  }
+
+  return { STATUSES, parseModel, wrap, layoutModel, readBack };
+})();
+</script>
+
+<script id="arch-ui">
+(function () {
+  'use strict';
+
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const STATUS_FILL = {
+    built: '#cfd6de',  item3: '#a3d6f7',  item4: '#8fb4f0',  item5: '#b7acf3',  item6: '#7fdfce',  item7: '#a3e6a0',
+    track1: '#ebe566', track2: '#c8de63', track3: '#63c2a3', track4: '#64bbd9', track5: '#8199da', track6: '#a892d9', track7: '#adb783',
+  };
+  const MIN_POINT_GAP = 1.5;  // Ignore pointer jitter smaller than this, in viewBox units.
+
+  const $ = id => document.getElementById(id);
+  const svg = $('diagram'), stage = $('stage'), note = $('note'), penButton = $('pen');
+  const canvas = document.createElement('canvas').getContext('2d');
+  const rootStyle = getComputedStyle(document.documentElement);
+  const uiFont = rootStyle.getPropertyValue('--font'), monoFont = rootStyle.getPropertyValue('--mono');
+  const measure = function (text, size, weight, family) {
+    canvas.font = `${weight} ${size}px ${family === 'mono' ? monoFont : uiFont}`;
+    return canvas.measureText(text).width;
+  };
+
+  // Everything a view owns lives on its own object, so nothing on one tab can reach another. app.view is the visible one.
+  const app = { version: null, title: '', views: [], view: null, pen: true, drawing: null, problems: null, clearHighlight: null };
+  let ink = null;
+
+  function el(tag, attrs, parent, text) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) node.setAttribute(k, attrs[k]);
+    if (text !== undefined) node.textContent = text;
+    if (parent) parent.appendChild(node);
+    return node;
+  }
+
+  // ---- Problems ----------------------------------------------------------------------------------------------------
+
+  function showProblems(heading, explain, problems) {
+    const box = $('problems');
+    box.hidden = false;
+    svg.style.display = 'none';
+    const h = document.createElement('h2'); h.textContent = heading;
+    const p = document.createElement('p'); p.textContent = explain;
+    const list = document.createElement('ol');
+    for (const item of problems) {
+      const li = document.createElement('li');
+      const b = document.createElement('b');
+      b.textContent = (item.line ? `Line ${item.line}: ` : '') + item.reason;
+      li.appendChild(b);
+      if (item.text) { const c = document.createElement('code'); c.textContent = item.text; li.appendChild(c); }
+      list.appendChild(li);
+    }
+    box.replaceChildren(h, p, list);
+    app.problems = problems;
+  }
+
+  function showWarnings(warnings) {
+    $('warnings').replaceChildren(...warnings.map(function (w) {
+      const li = document.createElement('li');
+      li.textContent = `Line ${w.line}: ${w.reason}`;
+      return li;
+    }));
+  }
+
+  // ---- Rendering ---------------------------------------------------------------------------------------------------
+
+  function roundedPath(points) {
+    const R = 7;
+    let d = `M${points[0][0]} ${points[0][1]}`;
+    for (let i = 1; i < points.length - 1; i++) {
+      const [px, py] = points[i - 1], [x, y] = points[i], [nx, ny] = points[i + 1];
+      const r = Math.min(R, Math.hypot(x - px, y - py) / 2, Math.hypot(nx - x, ny - y) / 2);
+      const toward = (fx, fy) => { const l = Math.hypot(fx - x, fy - y) || 1; return [x + (fx - x) / l * r, y + (fy - y) / l * r]; };
+      const a = toward(px, py), b = toward(nx, ny);
+      d += `L${a[0]} ${a[1]}Q${x} ${y} ${b[0]} ${b[1]}`;
+    }
+    const end = points[points.length - 1];
+    return d + `L${end[0]} ${end[1]}`;
+  }
+
+  function renderNode(g, n, b, L) {
+    el('rect', { class: 'box', x: b.x, y: b.y, width: b.w, height: b.h, rx: 6, fill: STATUS_FILL[n.status] }, g);
+    const left = b.x + L.padX;
+    const top = b.y + (b.h - b.textHeight) / 2 + L.padY;
+    let y = top + 15;
+    el('text', { class: 'tag', x: b.x + b.w - L.padX + 2, y: b.y + 15, 'font-size': L.fonts.status }, g, n.status);
+    for (const t of b.labelLines) { el('text', { class: 'name', x: left, y, 'font-size': L.fonts.label }, g, t); y += L.lineHeights.label; }
+    y += 1;
+    for (const t of b.whatLines) { el('text', { class: 'what', x: left, y, 'font-size': L.fonts.what }, g, t); y += L.lineHeights.what; }
+    if (!b.fieldLines.length) return;
+    const panelTop = top + b.labelLines.length * L.lineHeights.label + 2 + b.whatLines.length * L.lineHeights.what + 3;
+    el('rect', { class: 'fields', x: b.x + 4, y: panelTop, width: b.w - 8, height: L.fieldGap - 3 + b.fieldLines.length * L.lineHeights.field, rx: 3 }, g);
+    b.fieldLines.forEach(function (line, i) {
+      el('text', { class: 'field', x: left + line.indent, y: panelTop + 14 + i * L.lineHeights.field, 'font-size': L.fonts.field }, g, line.text);
+    });
+  }
+
+  function render(model, L) {
+    svg.replaceChildren();
+    svg.classList.remove('hl');  // Its node is gone, so no pointerleave will ever clear this.
+    svg.setAttribute('viewBox', `0 0 ${L.viewBox.w} ${L.viewBox.h}`);
+    const defs = el('defs', {}, svg);
+    const arrow = function (id, colour) {
+      const m = el('marker', { id, viewBox: '0 0 12 10', refX: 11.5, refY: 5, markerWidth: 12, markerHeight: 10, markerUnits: 'userSpaceOnUse', orient: 'auto' }, defs);
+      el('path', { d: 'M0 0.5L12 5L0 9.5z', fill: colour }, m);
+    };
+    arrow('arrow', '#3d4c5c');
+    arrow('arrowOn', '#1f5fbf');
+
+    const bands = el('g', { id: 'bands' }, svg);
+    for (const l of model.layers) {
+      const b = L.layers[l.id];
+      el('rect', { class: 'band band-' + b.tint, x: b.x, y: b.y, width: b.w, height: b.h }, bands);
+      b.lines.forEach((t, i) => el('text', { class: 'layer-label', x: 10, y: b.y + 24 + i * 19, 'font-size': L.fonts.layer }, bands, t));
+    }
+
+    const crateBoxes = el('g', { id: 'crates' }, svg);
+    for (const c of model.crates) {
+      const b = L.crates[c.id];
+      el('rect', { class: 'crate', x: b.x, y: b.y, width: b.w, height: b.h, rx: 7 }, crateBoxes);
+    }
+
+    const lines = el('g', { id: 'edges' }, svg);
+    const edgeParts = L.edges.map(function (e, i) {
+      return el('path', { class: 'edge line' + (e.proposed ? ' proposed' : ''), d: roundedPath(e.points), 'data-edge': i }, lines);
+    });
+
+    const crateTitles = el('g', { id: 'crate-titles' }, svg);
+    for (const c of model.crates) {
+      const t = L.crates[c.id].title;
+      el('text', { class: 'crate-label', x: t.x, y: t.y + 13, 'font-size': L.fonts.crate }, crateTitles, c.label);
+    }
+
+    const nodeGroup = el('g', { id: 'nodes' }, svg);
+    const nodeParts = new Map();
+    for (const n of model.nodes) {
+      const g = el('g', { class: 'node' + (n.proposed ? ' proposed' : ''), 'data-id': n.id }, nodeGroup);
+      renderNode(g, n, L.nodes[n.id], L);
+      nodeParts.set(n.id, g);
+      g.addEventListener('pointerenter', () => highlight(n.id));
+      g.addEventListener('pointerleave', clearHighlight);
+    }
+
+    const labelGroup = el('g', { id: 'edge-labels' }, svg);
+    const labelParts = L.edges.map(function (e, i) {
+      const g = el('g', { class: 'edge' + (e.proposed ? ' proposed' : ''), 'data-edge': i }, labelGroup);
+      const b = e.labelBox;
+      if (!b.lines.length) return g;
+      el('rect', { class: 'patch', x: b.x, y: b.y, width: b.w, height: b.h, rx: 3 }, g);
+      b.lines.forEach((t, k) => el('text', { class: 'edge-text', x: b.x + b.w / 2, y: b.y + 12.5 + k * L.lineHeights.edge, 'font-size': L.fonts.edge }, g, t));
+      return g;
+    });
+
+    const legend = el('g', { id: 'legend' }, svg);
+    for (const it of L.legend.items) {
+      const proposed = it.key === 'proposed';
+      el('rect', { x: it.x, y: it.y + 2, width: 22, height: 14, rx: 3,
+        fill: proposed ? '#ffffff' : STATUS_FILL[it.key], stroke: '#4b5a69', 'stroke-width': proposed ? 1.8 : 1, 'stroke-dasharray': proposed ? '5 3' : 'none' }, legend);
+      el('text', { x: it.x + 28, y: it.y + 14, 'font-size': L.fonts.legend, fill: '#1c2733' }, legend, it.text);
+    }
+
+    ink = el('g', { id: 'ink' }, svg);
+
+    function highlight(id) {
+      if (app.pen) return;
+      svg.classList.add('hl');
+      nodeParts.get(id).classList.add('on');
+      L.edges.forEach(function (e, i) {
+        if (e.from === id || e.to === id) { edgeParts[i].classList.add('on'); labelParts[i].classList.add('on'); }
+      });
+    }
+    function clearHighlight() {
+      svg.classList.remove('hl');
+      svg.querySelectorAll('.on').forEach(n => n.classList.remove('on'));
+    }
+    app.clearHighlight = clearHighlight;
+  }
+
+  // ---- Views -------------------------------------------------------------------------------------------------------
+
+  const viewFromHash = () => app.views.find(v => '#' + v.id === location.hash) || app.views[0];
+
+  function buildTabs() {
+    if (app.views.length < 2) return;
+    $('tabs').replaceChildren(...app.views.map(function (v) {
+      const a = document.createElement('a');
+      a.href = '#' + v.id;
+      a.textContent = v.label;
+      a.dataset.view = v.id;
+      a.setAttribute('role', 'tab');
+      return a;
+    }));
+  }
+
+  function showView(view) {
+    if (view === app.view) return;
+    if (app.drawing) finishStroke();
+    app.view = view;
+    render(view.model, view.layout);
+    paintInk();
+    note.value = view.text;
+    const title = view.model.title || app.title;
+    if (title) { $('title').textContent = title; document.title = title; }
+    for (const tab of $('tabs').children) tab.setAttribute('aria-selected', String(tab.dataset.view === view.id));
+    showWarnings(view.warnings);
+  }
+
+  // ---- Ink ---------------------------------------------------------------------------------------------------------
+
+  function strokeD(p) {
+    let d = `M${p[0]} ${p[1]}`;
+    if (p.length === 2) return d + 'l0.01 0';  // A zero-length line with a round cap draws the dot.
+    for (let i = 2; i < p.length; i += 2) d += `L${p[i]} ${p[i + 1]}`;
+    return d;
+  }
+
+  function paintInk() {
+    if (!ink) return;
+    ink.replaceChildren();
+    for (const s of app.view.strokes) el('path', { class: 'stroke', d: strokeD(s.points) }, ink);
+  }
+
+  function toViewBox(ev) {
+    return new DOMPoint(ev.clientX, ev.clientY).matrixTransform(svg.getScreenCTM().inverse());
+  }
+
+  function addPoint(stroke, ev) {
+    const { x, y } = toViewBox(ev), p = stroke.points, n = p.length;
+    if (n && Math.hypot(x - p[n - 2], y - p[n - 1]) < MIN_POINT_GAP) return;
+    p.push(Math.round(x * 10) / 10, Math.round(y * 10) / 10);
+  }
+
+  function beginStroke(ev) {
+    if (!app.pen || !app.view || app.drawing || ev.button !== 0) return;
+    ev.preventDefault();
+    if (document.activeElement === note) note.blur();
+    stage.setPointerCapture(ev.pointerId);
+    const stroke = { points: [] };
+    addPoint(stroke, ev);
+    app.drawing = { id: ev.pointerId, view: app.view, stroke, path: el('path', { class: 'stroke', d: strokeD(stroke.points) }, ink) };
+  }
+
+  function extendStroke(ev) {
+    const dr = app.drawing;
+    if (!dr || ev.pointerId !== dr.id) return;
+    const events = ev.getCoalescedEvents ? ev.getCoalescedEvents() : [];
+    for (const e of events.length ? events : [ev]) addPoint(dr.stroke, e);
+    dr.path.setAttribute('d', strokeD(dr.stroke.points));
+  }
+
+  // The stroke goes to the view it began on, even if the tab changes under the pen.
+  function finishStroke() {
+    const dr = app.drawing;
+    app.drawing = null;
+    dr.view.strokes.push(dr.stroke);
+    save(dr.view);
+  }
+
+  function endStroke(ev) {
+    if (app.drawing && ev.pointerId === app.drawing.id) finishStroke();
+  }
+
+  function undo() {
+    const view = app.view;
+    if (app.drawing || !view) return;
+    if (view.strokes.length) view.strokes.pop();
+    else if (view.clearedSets.length) view.strokes = view.clearedSets.pop();
+    else return;
+    paintInk();
+    save(view);
+  }
+
+  function clearInk() {
+    const view = app.view;
+    if (app.drawing || !view || !view.strokes.length) return;
+    view.clearedSets.push(view.strokes);  // Clear wipes a whole tab in one click, so Undo must be able to bring it back.
+    view.strokes = [];
+    paintInk();
+    save(view);
+  }
+
+  function setPen(on) {
+    app.pen = on;
+    document.body.classList.toggle('pen', on);
+    penButton.setAttribute('aria-pressed', String(on));
+    penButton.textContent = on ? 'Pen on' : 'Pen off';
+    if (on && app.clearHighlight) app.clearHighlight();
+  }
+
+  // ---- Persistence -------------------------------------------------------------------------------------------------
+
+  // A model with no view lines keeps the key it has always had, so marks made before views existed still load.
+  // "/" and "/index.html" are the same page. Chrome gives every file:// page one localStorage, hence the path at all.
+  function storageKey(version, view) {
+    const key = `arch-feedback:${location.pathname.replace(/\/$/, '/index.html')}:v${version}`;
+    return view.implicit ? key : `${key}:${view.id}`;
+  }
+
+  function load(view) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(view.key) || 'null');
+      if (!saved) return;
+      if (Array.isArray(saved.strokes)) view.strokes = saved.strokes.filter(s => s && Array.isArray(s.points) && s.points.length >= 2);
+      if (typeof saved.text === 'string') view.text = saved.text;
+    } catch (err) {
+      $('saveNote').textContent = 'Could not read saved marks';
+    }
+  }
+
+  function save(view) {
+    try {
+      localStorage.setItem(view.key, JSON.stringify({ strokes: view.strokes, text: view.text }));
+      $('saveNote').textContent = '';
+    } catch (err) {
+      $('saveNote').textContent = 'Marks are not being saved';
+    }
+  }
+
+  // ---- Read-back ---------------------------------------------------------------------------------------------------
+
+  window.feedback = function () {
+    if (!app.views.length) return { version: app.version, activeView: null, views: [], errors: app.problems || [] };
+    return {
+      version: app.version,
+      activeView: app.view.id,
+      views: app.views.map(function (view) {
+        const { strokes, text, touchedNodes, touchedEdges } = ArchCore.readBack({ version: app.version, text: view.text, strokes: view.strokes }, view.layout);
+        return { id: view.id, label: view.label, strokes, text, touchedNodes, touchedEdges };
+      }),
+    };
+  };
+
+  // ---- Start -------------------------------------------------------------------------------------------------------
+
+  function wire() {
+    stage.addEventListener('pointerdown', beginStroke);
+    stage.addEventListener('pointermove', extendStroke);
+    stage.addEventListener('pointerup', endStroke);
+    stage.addEventListener('pointercancel', endStroke);
+    penButton.addEventListener('click', () => setPen(!app.pen));
+    $('undo').addEventListener('click', undo);
+    $('clear').addEventListener('click', clearInk);
+    note.addEventListener('input', function () {
+      if (!app.view) return;
+      app.view.text = note.value;
+      save(app.view);
+    });
+    window.addEventListener('hashchange', function () { if (app.views.length) showView(viewFromHash()); });
+    window.addEventListener('keydown', function (e) {
+      if (e.target instanceof Element && e.target.closest('textarea, input')) return;  // Typing keeps its own D and Ctrl+Z.
+      const key = e.key.toLowerCase();
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && key === 'z') { e.preventDefault(); undo(); return; }
+      if (key === 'd' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.repeat) setPen(!app.pen);
+    });
+  }
+
+  function boot() {
+    note.value = '';
+    setPen(true);
+    wire();
+    if (typeof window.ARCH !== 'string') {
+      showProblems('The model did not load',
+        'architecture.js must sit next to this page and set window.ARCH. A backtick inside the model text ends the template early, which makes the whole file fail to load.',
+        [{ line: 0, reason: window.__archLoadError || 'window.ARCH is not set', text: '' }]);
+      return;
+    }
+    const { model, errors, warnings } = ArchCore.parseModel(window.ARCH);
+    app.version = model.version;
+    app.title = model.title;
+    if (model.title) { $('title').textContent = model.title; document.title = model.title; }
+    if (errors.length) {
+      showProblems(errors.length === 1 ? 'The model has a problem' : `The model has ${errors.length} problems`,
+        'Line numbers count inside window.ARCH: line 1 is the line holding the opening backtick in architecture.js.',
+        errors);
+      return;
+    }
+    try {
+      app.views = model.views.map(view => ({
+        id: view.id, label: view.label, model: view, layout: ArchCore.layoutModel(view, measure),
+        warnings: warnings.filter(w => w.view === view.id), key: storageKey(model.version, view),
+        strokes: [], clearedSets: [], text: '',
+      }));
+      app.views.forEach(load);
+      buildTabs();
+      showView(viewFromHash());
+    } catch (err) {
+      app.views = [];
+      app.view = null;
+      showProblems('The diagram could not be drawn', 'The model parsed, but laying it out failed. This is a bug in index.html, not in the model.',
+        [{ line: 0, reason: String(err && err.message || err), text: '' }]);
+    }
+  }
+
+  boot();
+})();
+</script>
+</body>
+</html>

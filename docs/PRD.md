@@ -88,8 +88,8 @@ IDs are stable references for issues and tests.
 |---|---|
 | REN-01 | Sprites render with **nearest-neighbour, integer-only scaling** (1×–4×), independent of Windows display scaling, so pixels never blur or shimmer. Default 2×. |
 | REN-02 | Animations honour **per-frame durations** from the character manifest (held frames, animating on twos/threes, smears) — there is no single fps per animation. |
-| REN-03 | **Layered procedural animation** on top of base frames: blink, breathing, squash & stretch, particles, drop shadow. |
-| REN-04 | **Emote bubbles** above the pet that make its current motive visible (e.g. 💤 tired, ❤️ petted, ❗ noticed cursor, ❓ curious, 💢 annoyed). |
+| REN-03 | A **drop shadow** on the Ground plane under the Pet, which stays there while the Pet is thrown or falls. Blink, breathing and squash & stretch are drawn as Frames, not added by code. |
+| REN-04 | **Emotes** above the pet that make its current motive visible (e.g. 💤 tired, ❤️ petted, ❗ noticed cursor, ❓ curious, 💢 annoyed). They are separate animated pixel art from a library in the Pack, shared by every Form, shown when the simulation signals a motive. They're optional and never catch clicks. |
 | REN-05 | Render loop is frame-capped (≈12–30 fps) to respect the performance budget (§6). Cursor hit-test polling for WIN-04 runs **independently of the animation cap**, so clicks at the sprite's edge are never misrouted. |
 
 ### 5.3 Behaviour engine ("Alive")
@@ -173,6 +173,7 @@ Pure domain logic, independent of the engine, built test-first (§7.2).
 | RAM (private working set — Task Manager "Memory") | < 150 MB (raised from ~100 MB on 2026-10-30 after the spike measured a ~100 MB fixed baseline for Bevy + wgpu + DX12 driver) |
 | Animation rate | ≈12–30 fps, frame-capped |
 | Games / fullscreen | zero impact — pet is hidden and not rendering |
+| During an Encounter | A loose guideline, not a gate: about 1.5 cores (5 % of the machine) and 250 MB, with 1,000 enemies as the normal case and 10,000 as the tested ceiling. Going over means revisiting the budget, not optimising early. The first goal is 200 enemies. Measured in [simulation-architecture.md](research/simulation-architecture.md). |
 
 To be **revisited** if/when live Live2D/3D rendering is introduced (Track 7).
 
@@ -239,11 +240,14 @@ Dependencies point inward:
 ```
 
 - The domain core is built **test-first** (Given-When-Then).
-- ECS systems are thin adapters that feed inputs (time, cursor, idle state) into the core and render its
-  outputs. Swapping Bevy for Tauri must not touch the core.
-- The layers are three crates (see [ADR-0001](adr/0001-os-boundary-crate.md)): `pet-core` for the domain core,
-  `pet-platform` for the platform adapters, one folder per operating system behind an OS-neutral API, and
-  `pet-app` for everything else.
+- ECS systems are thin adapters. They hold the core's types as components, call its rules, and feed in inputs
+  (time, cursor, idle state). The renderer only reads their results. Swapping Bevy would keep the rules but
+  rewrite those systems (see [ADR-0002](adr/0002-simulation-in-its-own-ecs-crate.md)).
+- The layers are four crates (see [ADR-0001](adr/0001-os-boundary-crate.md)):
+  - `pet-core` for the domain core.
+  - `pet-sim` for the simulation's ECS systems, with no rendering.
+  - `pet-platform` for the platform adapters, one folder per operating system behind an OS-neutral API.
+  - `pet-app` for everything else, including the renderer.
 
 ### 7.3 Content packs and the character format
 
@@ -303,7 +307,12 @@ memory and fixed personality traits. Per-form trait modifiers (§8.3) feed into 
 ### 9.1 MVP core (sequential)
 1. **Platform spike** (§7.1) → stack locked. **Done.**
 2. Window, click-through, auto-hide, tray, hotkey, autostart. **Done.**
-3. Content-pack loader + renderer (integer scaling, per-frame durations, procedural layers, emotes).
+3. Packs and the renderer, in five slices:
+   1. Pack format, `pet-content` and the validator.
+   2. `pet-sim` with its phases and the Animation clock, and a renderer with integer scaling and Anchor placement.
+   3. The drop shadow.
+   4. Emotes.
+   5. Hot reload.
 4. Domain core: behaviour engine, XP engine, form graph, pet physics including the ground plane (WIN-06).
 5. MVP interactions (throw, petting, cursor play, poke combos).
 6. Settings, save file, backups, export/import, optional SFX. Settings include the Return delay (`RETURN_DELAY` in `pet-core`).
@@ -429,6 +438,16 @@ fights at your side, and eventually talks with you — while never getting in yo
 | Autostart is one `Run` value, and `StartupApproved` is never touched (2026-11-01) | If the owner turns the app off in Windows Settings, that wins. |
 | Relaunch after a render failure, at most 3 times in 10 minutes (2026-11-01) | Recovers from a GPU reset, without looping for ever on a machine that can't render. Keeps a Manual hide. |
 | Warnings and errors go to `%LOCALAPPDATA%\DesktopPet\desktop-pet.log` (2026-11-01) | The release build has no console, so this is the only record of a failure. |
+| REN-03 cut to a drop shadow; Emotes are separate art (2026-11-01) | Blink, breathing and squash & stretch need character-specific data or can't stay on the pixel grid, and hand-drawn Frames do them better. |
+| Packs are data only, with no scripting (2026-11-02) | A new kind of effect needs Rust. Scripting can come later without changing the design. |
+| One Pet on screen; Progress kept per Character (2026-11-02) | Switching Characters must never lose progress (PRG-06). |
+| Encounters get their own budget, and companion mode stays light (2026-11-02) | The owner is focused on a fight, but works alongside the Pet the rest of the time. |
+| The simulation runs on Bevy's ECS in a `pet-sim` crate, and its rules stay in `pet-core` (2026-11-03) | Measured: speed doesn't separate the options, so coupling did. See [ADR-0002](adr/0002-simulation-in-its-own-ecs-crate.md). |
+| No physics engine; rectangles for the world and combat, pixels for clicks; 30 ticks a second (2026-11-03) | Nothing rotates, stacks or hangs on joints. A swept test stops fast Projectiles passing through. |
+| No built-in Actions, only a short list of Situations (2026-11-03) | The Mind's choices are Pack data. Only what the simulation causes itself (held, falling, landing) needs a fixed name. |
+| During an Encounter the Overlay catches every click on the Home monitor (2026-11-03) | A stray click mustn't reach an app underneath. The fight stays on the desktop, and Escape forfeits. |
+| A Pack loads completely or not at all; until Settings exist the first by folder name is used; the tray icon is the app's own (2026-11-03) | A half-loaded Pet is harder to understand than a clear error list. The tray must work with no Pack, so you can still quit. |
+| Packs hot-reload in release builds too (2026-11-03) | A file watcher costs nothing while idle and helps anyone making their own art. A Pack that fails validation leaves the old one in place. |
 
 ## 13. References
 

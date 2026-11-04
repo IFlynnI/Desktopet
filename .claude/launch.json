@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "architecture",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8377", "--bind", "127.0.0.1", "--directory", "docs/architecture"],
+      "port": 8377
+    }
+  ]
+}
