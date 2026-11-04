@@ -1,7 +1,6 @@
 //! The Pack in use. The simulation sees only its Definition, never its pixels.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use bevy_ecs::prelude::*;
 use pet_core::animation_clock::Playback;
@@ -9,6 +8,7 @@ use pet_core::pack::PackDefinition;
 use pet_core::placement;
 
 use crate::clock::{AnimationClock, ShownFrame};
+use crate::emotes::{EmoteClock, ShownEmote};
 use crate::{Faces, Pet, Position, WorkArea};
 
 /// The Definition of the Pack in use, shared read-only with whoever else needs it.
@@ -19,7 +19,8 @@ pub struct CurrentPack(pub Arc<PackDefinition>);
 #[derive(Message, Clone, Debug)]
 pub struct PackReloaded;
 
-/// When a Pack arrives, the Pet appears at home in the starting Form, playing its default Action on a loop.
+/// When a Pack arrives, the Pet appears at home in the starting Form, playing its default Action on a loop, with no
+/// Emote.
 pub(crate) fn spawn_pet(mut commands: Commands, pack: Res<CurrentPack>, work_area: Res<WorkArea>) {
     let definition = &pack.0;
     let form = definition.starting_form;
@@ -32,12 +33,14 @@ pub(crate) fn spawn_pet(mut commands: Commands, pack: Res<CurrentPack>, work_are
             form,
             animation,
             playback: Playback::Looping,
-            played: Duration::ZERO,
+            played_ticks: 0,
         },
         ShownFrame {
             form,
             animation,
             frame: 0,
         },
+        EmoteClock::default(),
+        ShownEmote::default(),
     ));
 }

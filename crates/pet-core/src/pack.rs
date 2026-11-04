@@ -3,6 +3,8 @@
 
 use std::time::Duration;
 
+use crate::animation_clock::Playback;
+
 /// A Form, by its place in `PackDefinition::forms`. Names from the Pack become numbers like this one, so the rest of
 /// the program never compares strings.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -101,6 +103,11 @@ impl FormDef {
     pub fn default_animation(&self) -> AnimationId {
         self.action(self.default_action).animation
     }
+
+    /// The Body while `action` runs: its own, if it has one, or else the Form's.
+    pub fn body_of(&self, action: ActionId) -> Body {
+        self.action(action).body.unwrap_or(self.body)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -150,6 +157,14 @@ impl EmoteMode {
             "one-shot" => Some(Self::OneShot),
             "looping" => Some(Self::Looping),
             _ => None,
+        }
+    }
+
+    /// How an Emote in this mode plays its Frames. A one-shot Emote also goes once its last Frame has had its time.
+    pub fn playback(self) -> Playback {
+        match self {
+            Self::OneShot => Playback::OneShot,
+            Self::Looping => Playback::Looping,
         }
     }
 }
@@ -268,5 +283,61 @@ mod tests {
             modes,
             [Some(EmoteMode::OneShot), Some(EmoteMode::Looping), None]
         );
+    }
+
+    #[test]
+    fn given_each_emote_mode_when_asking_how_it_plays_then_one_shot_plays_once_and_looping_loops() {
+        // Given
+        let modes = [EmoteMode::OneShot, EmoteMode::Looping];
+
+        // When
+        let playbacks = modes.map(EmoteMode::playback);
+
+        // Then
+        assert_eq!(playbacks, [Playback::OneShot, Playback::Looping]);
+    }
+
+    #[test]
+    fn given_an_action_with_a_body_of_its_own_and_one_without_when_asking_for_their_bodies_then_each_has_the_right_one()
+     {
+        // Given: "sleep" curls up into a smaller Body, and "idle" has none of its own
+        let form_body = Body {
+            x: -9,
+            y: -15,
+            width: 18,
+            height: 15,
+        };
+        let curled = Body {
+            x: -10,
+            y: -9,
+            width: 20,
+            height: 9,
+        };
+        let form = FormDef {
+            name: "hatchling".to_owned(),
+            cell: CellSize {
+                width: 24,
+                height: 18,
+            },
+            anchor: Anchor { x: 12, y: 18 },
+            body: form_body,
+            default_action: ActionId(1),
+            shadow: None,
+            actions: vec![
+                action("idle", 0),
+                ActionDef {
+                    body: Some(curled),
+                    ..action("sleep", 1)
+                },
+            ],
+            animations: vec![animation("idle"), animation("sleep")],
+            situations: Vec::new(),
+        };
+
+        // When
+        let bodies = [ActionId(0), ActionId(1)].map(|action| form.body_of(action));
+
+        // Then
+        assert_eq!(bodies, [form_body, curled]);
     }
 }

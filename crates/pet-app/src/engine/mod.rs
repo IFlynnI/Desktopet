@@ -1,5 +1,6 @@
 //! The Bevy adapter: draws the Pet on the Overlay.
 
+mod emote_view;
 mod log_file;
 mod overlay;
 mod pack_assets;
@@ -27,6 +28,7 @@ use pet_core::geometry::Rect;
 use pet_core::presence::Presence;
 use pet_sim::SimPlugin;
 
+use emote_view::EmoteViewPlugin;
 use overlay::{OverlayRect, PlatformHandle, ShellEventSender};
 use pixel_art::PixelArtPlugin;
 use presence::{CurrentPresence, ManualHideAtExit, ShellEvents};
@@ -39,8 +41,8 @@ pub use render_failure::{RENDER_FAILURE_EXIT, is_render_failure};
 
 use crate::pack::StartingPack;
 
-/// Draws the Pet the simulation shows, and its shadow, into whatever camera exists, on a clear background. `overlay` is
-/// the rect the camera covers, in physical pixels. The Pack comes from `PackAtStartup`.
+/// Draws the Pet the simulation shows, its shadow and its Emote, into whatever camera exists, on a clear background.
+/// `overlay` is the rect the camera covers, in physical pixels. The Pack comes from `PackAtStartup`.
 pub struct PetRenderPlugin {
     pub overlay: Rect,
 }
@@ -53,7 +55,12 @@ impl Plugin for PetRenderPlugin {
                 Startup,
                 pack_assets::add_starting_pack.run_if(resource_exists::<PackAtStartup>),
             )
-            .add_plugins((PixelArtPlugin, ShadowPlugin, RendererPlugin));
+            .add_plugins((
+                PixelArtPlugin,
+                ShadowPlugin,
+                RendererPlugin,
+                EmoteViewPlugin,
+            ));
     }
 }
 

@@ -10,6 +10,7 @@ pet-core.workspace = true
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_time.workspace = true
+log.workspace = true
 
 [lints]
 workspace = true

@@ -9,8 +9,9 @@ use std::path::Path;
 
 use bevy::prelude::With;
 use pet_core::geometry::Point;
+use pet_core::pack::EmoteId;
 use pet_core::placement::Facing;
-use pet_sim::{Faces, Pet, Position, ShownFrame};
+use pet_sim::{EmoteRequest, Faces, Pet, Position, ShownFrame};
 
 use harness::{Offscreen, Picture};
 
@@ -200,5 +201,94 @@ fn given_two_pets_each_with_a_shadow_when_drawn_then_every_one_is_drawn_in_its_o
     let got = offscreen.capture();
 
     // Then
+    assert_drawn(&got, &want);
+}
+
+/// Asks the simulation for `emote`, as the Mind will in roadmap item 4.
+fn show_emote(offscreen: &mut Offscreen, emote: EmoteId) {
+    offscreen
+        .app
+        .world_mut()
+        .write_message(EmoteRequest::Show(emote));
+}
+
+#[test]
+fn given_a_pet_showing_an_emote_when_it_moves_and_turns_round_then_the_emote_follows_above_its_body_unmirrored()
+ {
+    // Given: the tick that reads the request shows the Emote's first Frame
+    let (folder, pack) = fixture::load("emote-follows");
+    let note = fixture::emote_id(&pack, "note");
+    let mut offscreen = Offscreen::start(folder, pack, 40, 24);
+    show_emote(&mut offscreen, note);
+    offscreen.tick(1);
+
+    // When: drawn at home, then moved to (22, 24) and mirrored
+    let at_home = offscreen.capture();
+    offscreen.with_pet(|mut pet| {
+        pet.insert((Position(Point { x: 22, y: 24 }), Faces(Facing::Mirrored)));
+    });
+    let moved = offscreen.capture();
+
+    // Then: at home the Anchor is (20, 24), so the Pet's top-left is (18, 16), which is also its Body's top. The
+    // Body's right edge is 5 x 2 right of the Anchor, at x = 30. The 5 x 3 Emote at 2x is 2 texels left of that edge
+    // and ends 2 x 2 above the Body, so its top-left is (30 - 2 x 2, 16 - 4 - 6).
+    let mut want_at_home = Picture::clear(40, 24);
+    want_at_home.draw(&fixture::frame(0), 18, 16, SCALE, false);
+    want_at_home.draw(&fixture::emote("note", 0), 26, 6, SCALE, false);
+    assert_drawn(&at_home, &want_at_home);
+    // Its half-transparent corner, top right, holds its colour premultiplied by its alpha
+    assert_eq!(at_home.pixel(34, 6), fixture::EMOTE_HALF_DRAWN);
+    // Moved and mirrored, the Pet's top-left is (22 - 5 x 2, 16). The Body isn't mirrored, so its right edge is still
+    // 5 x 2 right of the Anchor, and the Emote's top-left is (22 + 5 x 2 - 2 x 2, 6).
+    let mut want_moved = Picture::clear(40, 24);
+    want_moved.draw(&fixture::frame(0), 12, 16, SCALE, true);
+    want_moved.draw(&fixture::emote("note", 0), 28, 6, SCALE, false);
+    assert_drawn(&moved, &want_moved);
+}
+
+#[test]
+fn given_a_one_shot_emote_when_its_last_frame_has_had_its_time_then_it_is_no_longer_drawn() {
+    // Given: "pop" is 50 ms then 50 ms. At home its top-left is (26, 6), as in the test above.
+    let (folder, pack) = fixture::load("emote-one-shot");
+    let pop = fixture::emote_id(&pack, "pop");
+    let mut offscreen = Offscreen::start(folder, pack, 40, 24);
+    show_emote(&mut offscreen, pop);
+
+    // When: the tick that reads the request shows its first Frame with no time played, so 3 ticks is 67 ms played, into
+    // its second Frame. One more is exactly 100 ms, its end.
+    offscreen.tick(3);
+    let playing = offscreen.capture();
+    offscreen.tick(1);
+    let ended = offscreen.capture();
+
+    // Then: the Pet has played 3 ticks, then 4, exactly 100 ms and more, so it's on its second Frame each time
+    let mut on_its_second_frame = Picture::clear(40, 24);
+    on_its_second_frame.draw(&fixture::frame(1), 18, 16, SCALE, false);
+    on_its_second_frame.draw(&fixture::emote("pop", 1), 26, 6, SCALE, false);
+    let mut gone = Picture::clear(40, 24);
+    gone.draw(&fixture::frame(1), 18, 16, SCALE, false);
+    assert_drawn(&playing, &on_its_second_frame);
+    assert_drawn(&ended, &gone);
+}
+
+#[test]
+fn given_a_crouched_pet_whose_art_reaches_above_its_body_when_it_shows_an_emote_then_the_emote_covers_its_art()
+ {
+    // Given: crouched, the Body's top is 1 x 2 above the Anchor at (20, 24) and its right edge 2 x 2 right of it. So
+    // the Emote's top-left is (24 - 2 x 2, 22 - 4 - 6), and its bottom row lands on the Pet's top row, y = 16 and 17.
+    let (folder, pack) = fixture::load_crouched("emote-in-front");
+    let note = fixture::emote_id(&pack, "note");
+    let mut want = Picture::clear(40, 24);
+    want.draw(&fixture::frame(0), 18, 16, SCALE, false);
+    want.draw(&fixture::emote("note", 0), 20, 12, SCALE, false);
+    let mut offscreen = Offscreen::start(folder, pack, 40, 24);
+    show_emote(&mut offscreen, note);
+
+    // When
+    offscreen.tick(1);
+    let got = offscreen.capture();
+
+    // Then: where the Emote's "cc..." meets the Pet's ".aa...", the Emote's colour shows
+    assert_eq!(got.pixel(20, 16), [60, 200, 120, 255]);
     assert_drawn(&got, &want);
 }

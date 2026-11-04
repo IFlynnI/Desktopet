@@ -8,9 +8,9 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::ImageSampler;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-use pet_content::LoadedPack;
+use pet_content::{FramePixels, LoadedPack};
 use pet_core::hit_mask::HitMask;
-use pet_core::pack::{AnimationId, FormId};
+use pet_core::pack::{AnimationId, EmoteId, FormId};
 use pet_sim::CurrentPack;
 
 use super::{log_file, pixel_art};
@@ -33,6 +33,9 @@ pub struct FrameAsset {
 pub struct PackAssets {
     /// By Form, then Animation, then Frame, numbered as in the Definition.
     frames: Vec<Vec<Vec<FrameAsset>>>,
+    /// By Emote, then Frame. Made once with the rest, so showing an Emote never makes a material. Slice 5's hot reload
+    /// replaces the Pack, and these with it.
+    emotes: Vec<Vec<Handle<ColorMaterial>>>,
 }
 
 impl PackAssets {
@@ -42,6 +45,10 @@ impl PackAssets {
         materials: &mut Assets<ColorMaterial>,
     ) -> Self {
         let definition = &pack.definition;
+        let mut material = |frame: &FramePixels| {
+            let image = images.add(pixel_art(frame.width, frame.height, frame.rgba.clone()));
+            pixel_art::material(image, materials)
+        };
         let frames = definition
             .forms
             .iter()
@@ -52,27 +59,31 @@ impl PackAssets {
                         let pixels = pack.pixels.frames(FormId(form), AnimationId(animation));
                         pixels
                             .iter()
-                            .map(|frame| {
-                                let image = images.add(pixel_art(
-                                    frame.width,
-                                    frame.height,
-                                    frame.rgba.clone(),
-                                ));
-                                FrameAsset {
-                                    material: pixel_art::material(image, materials),
-                                    hit_mask: Arc::new(frame.hit_mask.clone()),
-                                }
+                            .map(|frame| FrameAsset {
+                                material: material(frame),
+                                hit_mask: Arc::new(frame.hit_mask.clone()),
                             })
                             .collect()
                     })
                     .collect()
             })
             .collect();
-        Self { frames }
+        let emotes = (0..definition.emotes.len())
+            .map(|emote| {
+                let pixels = pack.pixels.emote_frames(EmoteId(emote));
+                pixels.iter().map(&mut material).collect()
+            })
+            .collect();
+        Self { frames, emotes }
     }
 
     pub fn frames(&self, form: FormId, animation: AnimationId) -> &[FrameAsset] {
         &self.frames[form.0][animation.0]
+    }
+
+    /// The material of each Frame of `emote`. An Emote never catches clicks, so it has no Hit masks.
+    pub fn emote_frames(&self, emote: EmoteId) -> &[Handle<ColorMaterial>] {
+        &self.emotes[emote.0]
     }
 }
 
@@ -119,13 +130,48 @@ pub fn add_starting_pack(
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
+    use std::{env, fs, process};
 
     use super::*;
 
+    fn placeholder_folder() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/placeholder")
+    }
+
     fn placeholder() -> LoadedPack {
-        let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/placeholder");
-        pet_content::load(&folder).unwrap_or_else(|errors| panic!("{errors:?}"))
+        pet_content::load(&placeholder_folder()).unwrap_or_else(|errors| panic!("{errors:?}"))
+    }
+
+    /// The placeholder Pack with two Emotes that borrow its idle strip as their sheet, loaded from a folder of its
+    /// own, which is removed again.
+    fn placeholder_with_emotes() -> LoadedPack {
+        let folder = env::temp_dir().join(format!("desktop-pet-pack-assets-{}", process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir_all(folder.join("hatchling")).unwrap();
+        fs::copy(
+            placeholder_folder().join("hatchling/idle.png"),
+            folder.join("hatchling/idle.png"),
+        )
+        .unwrap();
+        let manifest = fs::read_to_string(placeholder_folder().join("manifest.toml")).unwrap();
+        let emotes = r#"
+[emotes.spare]
+sheet = "hatchling/idle.png"
+cell = { width = 48, height = 18 }
+durations_ms = [500]
+mode = "looping"
+
+[emotes.wave]
+sheet = "hatchling/idle.png"
+cell = { width = 24, height = 18 }
+durations_ms = [250, 250]
+mode = "one-shot"
+"#;
+        fs::write(folder.join("manifest.toml"), manifest + emotes).unwrap();
+        let pack = pet_content::load(&folder).unwrap_or_else(|errors| panic!("{errors:?}"));
+        let _ = fs::remove_dir_all(&folder);
+        pack
     }
 
     fn startup_with(starting: StartingPack) -> App {
@@ -202,5 +248,36 @@ mod tests {
         assert!(!app.world().contains_resource::<PackAssets>());
         assert!(!app.world().contains_resource::<CurrentPack>());
         assert!(!app.world().contains_resource::<PackAtStartup>());
+    }
+
+    #[test]
+    fn given_a_pack_with_emotes_when_making_its_images_then_each_emote_frame_is_a_crisp_image_with_its_material()
+     {
+        // Given: "wave" is the second Emote, so picking the first shows up
+        let pack = placeholder_with_emotes();
+        let mut images = Assets::<Image>::default();
+        let mut materials = Assets::<ColorMaterial>::default();
+
+        // When
+        let assets = PackAssets::new(&pack, &mut images, &mut materials);
+
+        // Then
+        let wave = EmoteId(1);
+        assert_eq!(pack.definition.emote(wave).name, "wave");
+        let frames = assets.emote_frames(wave);
+        let pixels = pack.pixels.emote_frames(wave);
+        assert_eq!(frames.len(), 2);
+        for (material, pixels) in frames.iter().zip(pixels) {
+            let material = materials.get(material).expect("the material was added");
+            assert_eq!(material.color, Color::WHITE);
+            let texture = material
+                .texture
+                .as_ref()
+                .expect("the material has the image");
+            let image = images.get(texture).expect("the image was added");
+            assert_eq!(image.size(), UVec2::new(24, 18));
+            assert_eq!(image.data.as_deref(), Some(pixels.rgba.as_slice()));
+            assert_eq!(image.sampler, ImageSampler::nearest());
+        }
     }
 }

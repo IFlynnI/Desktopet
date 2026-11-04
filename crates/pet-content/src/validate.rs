@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use pet_core::animation_clock::{SHORTEST_FRAME_MS, TICKS_PER_SECOND};
 use pet_core::pack::{EmoteMode, Situation};
 
 use crate::PackError;
@@ -280,17 +281,27 @@ fn check_body(path: &str, body: BodyBox, errors: &mut Vec<PackError>) {
     }
 }
 
-/// Checks there's at least one Frame and none of them lasts 0 ms. Returns how many Frames there are.
+/// Why a Frame under `SHORTEST_FRAME_MS` is an error, and what it needs instead.
+fn too_short() -> String {
+    format!(
+        "shorter than one {TICKS_PER_SECOND} Hz tick, so it might never be shown. Every Frame must last at least \
+         {SHORTEST_FRAME_MS} ms"
+    )
+}
+
+/// Checks there's at least one Frame and each lasts at least one simulation tick, rounded up to a whole millisecond.
+/// A Frame that long always has a tick inside it, so it's always shown. Returns how many Frames there are.
 fn check_durations(path: &str, durations_ms: &[u32], errors: &mut Vec<PackError>) -> usize {
     if durations_ms.is_empty() {
         errors.push(error(path, "needs at least one duration, one per Frame"));
     }
     for (frame, &ms) in durations_ms.iter().enumerate() {
-        if ms == 0 {
+        if ms < SHORTEST_FRAME_MS {
             errors.push(error(
                 path,
                 format!(
-                    "Frame {frame}, counting from 0, lasts 0 ms, but every Frame must last longer"
+                    "Frame {frame}, counting from 0, lasts {ms} ms, which is {}",
+                    too_short()
                 ),
             ));
         }
@@ -398,7 +409,7 @@ mod tests {
     /// An Animation that nothing plays, to go just before the sleep Animation.
     const WAVE: &str = r#"[forms.hatchling.animations.wave]
         sheet = "hatchling/idle.png"
-        durations_ms = [1, 1]
+        durations_ms = [250, 250]
 
         [forms.hatchling.animations.sleep]"#;
 
@@ -631,6 +642,72 @@ mod tests {
             ["forms.hatchling.animations.sleep.durations_ms"]
         );
         assert!(errors[0].message.contains("Frame 1"), "{errors:?}");
+    }
+
+    #[test]
+    fn given_a_frame_shorter_than_one_tick_when_checking_then_it_is_reported_because_it_might_never_be_shown()
+     {
+        // Given: 33 ms, under one 33.3 ms tick
+        let manifest = example_with(
+            "durations_ms = [600, 300, 600]",
+            "durations_ms = [600, 33, 600]",
+        );
+
+        // When
+        let errors = check(&manifest, &example_sheets());
+
+        // Then
+        assert_eq!(
+            fields(&errors),
+            ["forms.hatchling.animations.sleep.durations_ms"]
+        );
+        let message = &errors[0].message;
+        assert!(message.contains("Frame 1"), "{message}");
+        assert!(message.contains("33 ms"), "{message}");
+        assert!(
+            message.contains("shorter than one 30 Hz tick, so it might never be shown"),
+            "{message}"
+        );
+        assert!(message.contains("at least 34 ms"), "{message}");
+    }
+
+    #[test]
+    fn given_frames_of_exactly_one_tick_rounded_up_when_checking_then_they_pass() {
+        // Given: 34 ms, in an Animation and in an Emote
+        let text = EXAMPLE
+            .replacen(
+                "durations_ms = [600, 300, 600]",
+                "durations_ms = [600, 34, 600]",
+                1,
+            )
+            .replacen(
+                "durations_ms = [200, 200, 400]",
+                "durations_ms = [34, 34, 34]",
+                1,
+            );
+        let manifest = manifest(&text);
+
+        // When
+        let errors = check(&manifest, &example_sheets());
+
+        // Then
+        assert_eq!(errors, []);
+    }
+
+    #[test]
+    fn given_an_emote_frame_shorter_than_one_tick_when_checking_then_it_is_reported() {
+        // Given
+        let manifest = manifest(&EXAMPLE.replacen(
+            "durations_ms = [200, 200, 400]",
+            "durations_ms = [200, 33, 400]",
+            1,
+        ));
+
+        // When
+        let errors = check(&manifest, &example_sheets());
+
+        // Then
+        assert_eq!(fields(&errors), ["emotes.tired.durations_ms"]);
     }
 
     #[test]

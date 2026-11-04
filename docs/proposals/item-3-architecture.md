@@ -1,6 +1,6 @@
 # Proposal: architecture and code structure for roadmap item 3
 
-**Status:** agreed on 2026-11-03. Slices 1, 2 and 3 are built.
+**Status:** agreed on 2026-11-03. Slices 1, 2, 3 and 4 are built.
 
 This covers item 3: Packs and the renderer, in five slices. It applies the target architecture agreed in the same
 session, which is drawn in [docs/architecture/index.html](../architecture/index.html) and recorded in
@@ -161,7 +161,9 @@ and keeps the tray icon so you can still quit. `pet-pack validate <folder>` prin
 5. **Sheets.**
    - Every sheet exists and is a PNG with transparency.
    - Each sheet is exactly one cell high, and as wide as the cell times its number of durations.
-6. **Durations.** There is one duration per Frame, and each is above 0 ms.
+6. **Durations.** There is one duration per Frame, and each lasts at least 34 ms: one 30 Hz simulation tick,
+   rounded up to a whole millisecond, `animation_clock::SHORTEST_FRAME_MS`. A shorter Frame could fall between two
+   ticks and never be shown.
 7. **Anchor and Body.**
    - The Anchor lies inside the cell or on its edge. It's measured between pixels from the cell's top-left, so x goes
      from 0 to the width and y from 0 to the height.
@@ -193,6 +195,7 @@ crates/
       animation_clock.rs         new: which Frame shows after a given time, looping or one-shot
       placement.rs               new: Anchor position, scale and facing become a hit_mask::Placement; the Ground plane
       shadow.rs                  new: slice 3, the shadow's ellipse and where it goes on the Ground plane
+      emote.rs                   new: slice 4, where an Emote goes above the Body
       hit_mask.rs                unchanged
   pet-content/                   new crate
     src/
@@ -210,7 +213,7 @@ crates/
       phases.rs                  the system sets Sense, Interpret, React, Decide, Act, Resolve, Present, chained
       pack.rs                    the current Definition as a shared resource; PackReloaded
       clock.rs                   advances each Animation clock; holds time while Hidden
-      emotes.rs                  ShowEmote and HideEmote; one-shot and looping
+      emotes.rs                  EmoteRequest: Show and Hide; one-shot and looping
   pet-platform/
     src/
       windows/mod.rs             adds packs_folder() next to log_file_path()
@@ -238,12 +241,13 @@ crates/
 | `pet_content::load(pack_folder) -> Result<LoadedPack, Vec<PackError>>` | All or nothing. `LoadedPack` holds the `PackDefinition` and the pixels |
 | `pet-pack validate <folder>` | Prints every error. Exits non-zero if there are any |
 | `pet_core::pack::PackDefinition` | Read-only, shared through an `Arc`. The simulation never sees pixels |
-| `pet_core::animation_clock` | Given the durations, whether it loops and the time played, returns the Frame. Pure |
+| `pet_core::animation_clock` | Given the durations, whether it loops and the whole ticks played, returns the Frame, exactly. Pure. Also holds `TICKS_PER_SECOND` and `SHORTEST_FRAME_MS` |
 | `pet_core::placement::place(...)` | Anchor position, Form, scale and facing become the `Placement` the Hit mask already uses |
 | `pet_sim::SimPlugin` | Adds the phases, the clock and the Emote systems |
 | `pet_sim::{Pet, Position, Faces, ShownFrame}` | What the renderer reads: where the Anchor is, which way the Pet faces, and the Frame the clock picked |
 | `pet_sim::Hidden` | Set by the app from Presence. The clock holds while it's `true` |
-| `ShowEmote`, `HideEmote`, `PackReloaded` | Messages, read once in a later phase |
+| `EmoteRequest::{Show(EmoteId), Hide(EmoteId)}`, `PackReloaded` | Messages, read once in a later phase. Emote requests are read in React and applied in the order they were sent |
+| `pet_sim::{EmoteClock, ShownEmote}` | The Emote the Pet plays and for how long, and the Emote Frame it shows, if any |
 | `Platform::publish_hit_target(HitTarget)` | Unchanged. Now fed from the Frame the simulation picked |
 
 ## The five slices
@@ -253,7 +257,7 @@ crates/
 | 1. Pack, loader and validator | The Definition types, `pet-content`, `pet-pack`, the placeholder Pack, the app's own tray icon | `pet-core/pack`, `pet-content/*` except `watch`, `pet-app/engine/pack_assets`, `tray_icon` | `pet-pack validate content/placeholder` passes. The app loads the Pack at startup and the Pet looks and moves exactly as today. A broken Pack shows no Pet, logs every error, and the tray still quits |
 | 2. Simulation, clock and renderer | `pet-sim` with its phases, the Animation clock, the renderer, Anchor placement | `pet-core/animation_clock`, `placement`, `pet-sim/*` except `emotes`, `pet-app/engine/renderer` | The Pet plays its default Action on a loop, timed by the Pack's per-Frame durations, at 2× integer scale, placed by its Anchor. The Hit mask follows the simulation's Frame. Hidden freezes the clock, so the Pet doesn't jump on waking <br>**Built.** The app tells the simulation it's Hidden through `pet_sim::Hidden`. The simulation then pauses Bevy's virtual clock, so the time spent Hidden is never added and the fixed clock has nothing to catch up on |
 | 3. Drop shadow | The shadow under the Anchor, with width and colour from the Pack | `pet-core/shadow`, `pet-app/engine/shadow`, `pet-app/engine/pixel_art` | The shadow draws under the feet and never catches clicks <br>**Built.** The shadow is a pixel-art ellipse, one texel per Pack pixel, drawn at the Pet's 2x on its own entity behind the Pet. It's `width` Pack pixels wide and a quarter of that high, rounded half up and at least 2, so 30 x 8 for Brim. It's centred on the Anchor's x, with an odd width's extra texel on the right so it stays on the Pet's texel grid. Its bottom row ends on the Ground plane, `placement::ground`, which `home` also uses, because the Overlay stops there. A Form with no shadow hides it, and it's redrawn only when the Form, the Anchor or the Ground plane changes. The Hit target is unchanged by it. **Not `Sprite`:** on DX12 a `Sprite` after the first draw call lands in the wrong place, so the Pet and its shadow are each a unit-quad `Mesh2d` with a `ColorMaterial`, through `engine/pixel_art`, which Emotes will use too ([Sprites on DX12](../research/simulation-architecture.md#sprites-on-dx12)). **Colour:** half-transparent pixels blend in sRGB, as an image editor shows them, through `CompositingSpace::Srgb` on the camera. A shadow pixel is left premultiplied in sRGB, `c x a`, and the window's compositor adds what's behind, so `#1a132660` over magenta should show as (169, 7, 173), within 2. Bevy's default, linear light, would have shown (172, 8, 180). An unrun real-exe test checks it. **Known limitation:** an odd-width shadow keeps its extra texel right of the Anchor when the Pet is mirrored, so it sits half a texel off the mirrored Pet's centre |
-| 4. Emotes | The Pack's Emote library, `ShowEmote` and `HideEmote` | `pet-sim/emotes`, `pet-app/engine/emote_view` | A one-shot Emote plays once and vanishes. A looping one stays until hidden. It sits above the top of the Body, never catches clicks. Headless and windowless render tests cover it until item 4 sends it |
+| 4. Emotes | The Pack's Emote library, `EmoteRequest::Show` and `Hide` | `pet-core/emote`, `pet-sim/emotes`, `pet-app/engine/emote_view` | A one-shot Emote plays once and vanishes. A looping one stays until hidden. It sits above the top of the Body, never catches clicks. Headless and windowless render tests cover it until item 4 sends it <br>**Built.** One message, `EmoteRequest::Show(EmoteId)` or `EmoteRequest::Hide(EmoteId)`, takes the interned id and acts on the Pet. It names no Actor yet: item 4 adds one, so that enemies such as bosses can show Emotes too. It's one type so that the order of shows and hides survives: the simulation reads the requests once a tick in React and applies them in the order they were sent, so the last one wins. A hide then a show in one tick leaves the Emote showing from its start, and a show then a hide leaves it hidden. One Emote shows at a time. A show replaces it and starts from Frame 0, except that showing the looping Emote already showing leaves it be. A hide of an Emote that isn't showing does nothing, and so does a show when the Pack has no such Emote, with a warning in the log. The Emote clock moves on in Act with the Pet's, so it holds while Hidden, and a request sent while Hidden waits for the first tick after waking. The tick that starts an Emote shows its first Frame with no time played, as the Pet's first Frame shows before any time passes, and time counts from the next tick. **Exact ticks:** the Pet's clock and the Emote's count whole ticks, and `pet_core::animation_clock` turns tick n into exactly n/30 s with integer maths, because Bevy's fixed timestep is 33,333,333 ns and 3 of those fall just short of 100 ms. So each Frame shows from the first tick at or after its start, and boundaries never drift: 100 ms then 200 ms shows for exactly 3 then 6 ticks, Brim's `tired` for 10 ticks a Frame and `annoyed` for 6, 4 and 6, loop after loop, and `love`, 66, 67, 100, 400, 200 and 133 ms, for 2, 2, 3, 12, 6 and 4. With rule 6, every Frame lasts at least a tick, so none is ever skipped. A one-shot Emote is removed in the same tick its last Frame's time ends, so the renderer never sees it past its end. The Pet carries `EmoteClock` and `ShownEmote`, which changes only when the Frame does. **Placement** is `pet_core::emote::place`. It's centred on the right edge of the Body, `emote::RIGHT_OF_BODY` Pack pixels right of it (0 for now, so on the edge), with an odd width's extra texel on the right, at the Pet's 2x and on its texel grid. Its bottom is 2 Pack pixels above the top of the Body. The Body is the current Action's own, if it has one, or else the Form's. In item 3 the Pet always plays its default Action, so that's the one used, through `FormDef::body_of`. A Pack gives an Emote no Anchor, so its bottom-centre lines up. It's never mirrored, and it stays on the right whichever way the Pet faces, because `place` takes the Body as the Pack gives it and no facing. **Drawing:** its own `Mesh2d` entity through `engine/pixel_art`, at z 1 in front of the Pet. Its materials, one per Frame, are made with the rest of `PackAssets`. It's redrawn only when the Emote, the Form or the position changes, and the Hit target is unchanged by it. The render tests check its pixels, including a half-transparent one blended in sRGB, and one where it covers the Pet's art. **For item 4:** once the Pet plays other Actions, the view must use the running Action's Body rather than the default's. **Known limitation:** for a Body that's off-centre on its Anchor, the right edge is the unmirrored Body's, so a mirrored Pet's Emote sits as far right of the Anchor as when it faces the other way, not over the mirrored Body's right edge. Brim's and the placeholder's Bodies are centred, so they're unaffected |
 | 5. Hot reload | The Pack watcher | `pet-content/watch`, `pet-sim/pack` | Windows reports file changes, with no polling. A valid edit replaces the Pack and sends `PackReloaded`. An invalid one keeps the old Pack and logs the errors |
 
 Each slice is built test-first and ends with its tests passing. A manual check is added only where a test can't see

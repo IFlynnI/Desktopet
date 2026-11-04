@@ -142,11 +142,12 @@ mod tests {
     use pet_content::{LoadedPack, PackError};
     use pet_core::geometry::{Point, Rect};
     use pet_core::hit_mask::{HitMask, Placement};
-    use pet_core::pack::{AnimationId, FormId};
+    use pet_core::pack::{AnimationId, EmoteId, FormId};
     use pet_core::placement::Facing;
-    use pet_sim::SimPlugin;
+    use pet_sim::{EmoteFrame, ShownEmote, SimPlugin};
 
     use super::*;
+    use crate::engine::emote_view::{EmoteOf, EmoteViewPlugin};
     use crate::engine::pack_assets::PackAtStartup;
     use crate::engine::pixel_art::PixelArtPlugin;
     use crate::engine::shadow::{ShadowOf, ShadowPlugin};
@@ -374,7 +375,8 @@ mod tests {
         (publishing_from(folder, pack), kept)
     }
 
-    /// The Pet from `pack` with the recording platform's publisher and its shadow drawn, and time standing still.
+    /// The Pet from `pack` with the recording platform's publisher and its shadow and Emote drawn, and time standing
+    /// still.
     fn publishing_from(folder: PathBuf, pack: LoadedPack) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
@@ -391,6 +393,7 @@ mod tests {
                 },
                 PixelArtPlugin,
                 ShadowPlugin,
+                EmoteViewPlugin,
             ))
             .add_systems(
                 Update,
@@ -531,6 +534,71 @@ shadow = { width = 16, colour = \"#22203480\" }",
         // Then
         assert_eq!(shadow_drawables(&mut with), 1, "the shadow is drawn");
         assert_eq!(shadow_drawables(&mut without), 0);
+        let published = RecordingPlatform::published(&with);
+        assert_eq!(published.len(), 2);
+        assert_eq!(published, RecordingPlatform::published(&without));
+    }
+
+    /// The placeholder Pack with an Emote, "wave", that borrows its idle strip as its sheet, in a folder of its own.
+    fn placeholder_with_emote(test: &str) -> (TestPack, LoadedPack) {
+        let folder = env::temp_dir().join(format!("desktop-pet-renderer-{}-{test}", process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir_all(folder.join("hatchling")).unwrap();
+        let (placeholder_folder, _) = placeholder();
+        fs::copy(
+            placeholder_folder.join("hatchling/idle.png"),
+            folder.join("hatchling/idle.png"),
+        )
+        .unwrap();
+        let manifest = fs::read_to_string(placeholder_folder.join("manifest.toml")).unwrap();
+        let emote = r#"
+[emotes.wave]
+sheet = "hatchling/idle.png"
+cell = { width = 24, height = 18 }
+durations_ms = [250, 250]
+mode = "looping"
+"#;
+        fs::write(folder.join("manifest.toml"), manifest + emote).unwrap();
+        let pack = pet_content::load(&folder).unwrap_or_else(|errors| panic!("{errors:?}"));
+        (TestPack(folder), pack)
+    }
+
+    fn emote_drawables(app: &mut App) -> usize {
+        let world = app.world_mut();
+        world
+            .query_filtered::<&Mesh2d, With<EmoteOf>>()
+            .iter(world)
+            .count()
+    }
+
+    #[test]
+    fn given_a_pet_showing_an_emote_when_it_is_drawn_and_moves_then_its_published_hit_targets_are_the_same_as_without_one()
+     {
+        // Given: the same Pet, once showing an Emote and once not. Time stands still, so the Emote is set as the
+        // simulation would set it.
+        let (plain_folder, plain) = placeholder();
+        let (emoting_folder, emoting) = placeholder_with_emote("emote-hit-target");
+        let mut without = publishing_from(plain_folder, plain);
+        let mut with = publishing_from(emoting_folder.0.clone(), emoting);
+        with.update();
+        change_pet::<ShownEmote>(&mut with, |shown| {
+            shown.0 = Some(EmoteFrame {
+                emote: EmoteId(0),
+                frame: 1,
+            });
+        });
+
+        // When: each is published, then moves
+        for app in [&mut without, &mut with] {
+            app.insert_resource(RecordingPlatform::default());
+            app.update();
+            change_pet::<Position>(app, |position| position.0 = Point { x: 100, y: 700 });
+            app.update();
+        }
+
+        // Then
+        assert_eq!(emote_drawables(&mut with), 1, "the Emote is drawn");
+        assert_eq!(emote_drawables(&mut without), 0);
         let published = RecordingPlatform::published(&with);
         assert_eq!(published.len(), 2);
         assert_eq!(published, RecordingPlatform::published(&without));

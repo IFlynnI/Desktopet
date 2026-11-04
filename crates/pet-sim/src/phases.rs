@@ -6,9 +6,7 @@ use bevy_app::{App, FixedUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::{LogLevel, ScheduleBuildSettings};
 use bevy_time::{Fixed, Time};
-
-/// How often the simulation ticks. Bevy's fixed clock runs the ticks, however often the engine updates.
-pub const TICKS_PER_SECOND: f64 = 30.0;
+use pet_core::animation_clock::TICKS_PER_SECOND;
 
 /// One phase of a tick, in the order they run.
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -30,7 +28,8 @@ pub enum Phase {
 }
 
 pub(crate) fn configure(app: &mut App) {
-    app.insert_resource(Time::<Fixed>::from_hz(TICKS_PER_SECOND))
+    // Bevy's fixed clock runs the ticks, however often the engine updates.
+    app.insert_resource(Time::<Fixed>::from_hz(f64::from(TICKS_PER_SECOND)))
         .configure_sets(
             FixedUpdate,
             (
