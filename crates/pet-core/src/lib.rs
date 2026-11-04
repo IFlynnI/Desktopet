@@ -9,3 +9,4 @@ pub mod pack;
 pub mod placement;
 pub mod presence;
 pub mod relaunch;
+pub mod shadow;

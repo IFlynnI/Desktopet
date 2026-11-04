@@ -9,9 +9,10 @@ use pet_sim::{CurrentPack, Faces, Pet, Position, ShownFrame};
 
 use super::overlay::{OverlayRect, PlatformHandle, sprite_translation};
 use super::pack_assets::PackAssets;
+use super::pixel_art::{self, UnitQuad};
 
 /// The default integer scale (REN-01).
-const SCALE: u32 = 2;
+pub(super) const SCALE: u32 = 2;
 
 pub struct RendererPlugin;
 
@@ -48,46 +49,45 @@ type Shown = (
     Ref<'static, Faces>,
 );
 
-/// Its sprite, once it has one.
-type Drawn = (Option<&'static mut Sprite>, Option<&'static mut Transform>);
+/// How it's drawn, once it is.
+type Drawn = (
+    Option<&'static mut MeshMaterial2d<ColorMaterial>>,
+    Option<&'static mut Transform>,
+);
 
-/// Draws a Pet whose Frame, position or facing has changed, giving it a sprite the first time.
+/// Draws a Pet whose Frame, position or facing has changed, making it drawable the first time. Drawn the
+/// `pixel_art` way, not as a `Sprite`.
 fn draw(
     mut commands: Commands,
     pack: Res<CurrentPack>,
     assets: Res<PackAssets>,
     overlay: Res<OverlayRect>,
+    quad: Res<UnitQuad>,
     mut pets: Query<(Entity, Shown, Drawn), ChangedPet>,
 ) {
-    for (pet, (shown, position, faces), (sprite, transform)) in &mut pets {
+    for (pet, (shown, position, faces), (drawn_material, drawn_transform)) in &mut pets {
         let form = pack.0.form(shown.form);
         let placement = placement::place(position.0, form, SCALE, faces.0);
         let (width, height) = (
             (form.cell.width * SCALE) as i32,
             (form.cell.height * SCALE) as i32,
         );
-        let size = Vec2::new(width as f32, height as f32);
-        let image = assets.frames(shown.form, shown.animation)[shown.frame]
-            .image
+        let material = assets.frames(shown.form, shown.animation)[shown.frame]
+            .material
             .clone();
         let translation = sprite_translation(overlay.0, placement.top_left, width, height);
-        match (sprite, transform) {
-            (Some(mut sprite), Some(mut transform)) => {
-                sprite.image = image;
-                sprite.custom_size = Some(size);
-                sprite.flip_x = placement.flip_x;
-                transform.translation = translation;
+        let transform = pixel_art::transform(translation, width, height, placement.flip_x);
+        match (drawn_material, drawn_transform) {
+            (Some(mut drawn_material), Some(mut drawn_transform)) => {
+                if drawn_material.0 != material {
+                    drawn_material.0 = material;
+                }
+                drawn_transform.set_if_neq(transform);
             }
             _ => {
-                commands.entity(pet).insert((
-                    Sprite {
-                        image,
-                        custom_size: Some(size),
-                        flip_x: placement.flip_x,
-                        ..default()
-                    },
-                    Transform::from_translation(translation),
-                ));
+                commands
+                    .entity(pet)
+                    .insert(pixel_art::drawable(&quad, material, transform));
             }
         }
     }
@@ -148,6 +148,8 @@ mod tests {
 
     use super::*;
     use crate::engine::pack_assets::PackAtStartup;
+    use crate::engine::pixel_art::PixelArtPlugin;
+    use crate::engine::shadow::{ShadowOf, ShadowPlugin};
     use crate::pack::StartingPack;
 
     /// Everything logged while it's in use, as text.
@@ -192,6 +194,8 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<ColorMaterial>>()
+            .init_resource::<Assets<Mesh>>()
             .insert_resource(OverlayRect(WORK_AREA))
             .insert_resource(PackAtStartup(starting))
             .add_systems(Startup, crate::engine::pack_assets::add_starting_pack)
@@ -199,17 +203,20 @@ mod tests {
                 SimPlugin {
                     work_area: WORK_AREA,
                 },
+                PixelArtPlugin,
                 RendererPlugin,
             ));
         app
     }
 
-    fn pet_sprites(app: &mut App) -> Vec<(Sprite, Transform)> {
+    /// Each drawn Pet's material and transform. A transform's scale is its size on screen.
+    fn pet_drawables(app: &mut App) -> Vec<(Handle<ColorMaterial>, Transform)> {
         let world = app.world_mut();
-        let mut query = world.query_filtered::<(&Sprite, &Transform), With<Pet>>();
+        let mut query = world
+            .query_filtered::<(&MeshMaterial2d<ColorMaterial>, &Transform), (With<Pet>, With<Mesh2d>)>();
         query
             .iter(world)
-            .map(|(sprite, transform)| (sprite.clone(), *transform))
+            .map(|(material, transform)| (material.0.clone(), *transform))
             .collect()
     }
 
@@ -225,7 +232,8 @@ mod tests {
         // Given: the placeholder's second Frame, mirrored, with its Anchor at (500, 800)
         let (_, pack) = placeholder();
         let mut images = Assets::<Image>::default();
-        let assets = PackAssets::new(&pack, &mut images);
+        let mut materials = Assets::<ColorMaterial>::default();
+        let assets = PackAssets::new(&pack, &mut images, &mut materials);
         let current = CurrentPack(Arc::new(pack.definition.clone()));
         let form = pack.definition.starting_form;
         let animation = pack.definition.form(form).default_animation();
@@ -270,10 +278,10 @@ mod tests {
         app.update();
 
         // Then: 48 x 36 on screen, centred across the work area, with its centre 18 up from the bottom
-        let sprites = pet_sprites(&mut app);
-        assert_eq!(sprites.len(), 1);
-        let (sprite, transform) = &sprites[0];
-        assert_eq!(sprite.custom_size, Some(Vec2::new(48.0, 36.0)));
+        let drawables = pet_drawables(&mut app);
+        assert_eq!(drawables.len(), 1);
+        let (_, transform) = &drawables[0];
+        assert_eq!(transform.scale, Vec3::new(48.0, 36.0, 1.0));
         assert_eq!(transform.translation, Vec3::new(0.0, -382.0, 0.0));
     }
 
@@ -305,7 +313,7 @@ mod tests {
         log.during(|| app.update());
 
         // Then
-        assert!(pet_sprites(&mut app).is_empty());
+        assert!(pet_drawables(&mut app).is_empty());
         let logged = log.text();
         let errors: Vec<&str> = logged
             .lines()
@@ -333,7 +341,7 @@ mod tests {
         app.update();
 
         // Then
-        assert!(pet_sprites(&mut app).is_empty());
+        assert!(pet_drawables(&mut app).is_empty());
     }
 
     /// Stands in for the platform, keeping every Hit target it's given.
@@ -363,20 +371,32 @@ mod tests {
     fn publishing() -> (App, LoadedPack) {
         let (folder, pack) = placeholder();
         let (_, kept) = placeholder();
+        (publishing_from(folder, pack), kept)
+    }
+
+    /// The Pet from `pack` with the recording platform's publisher and its shadow drawn, and time standing still.
+    fn publishing_from(folder: PathBuf, pack: LoadedPack) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO))
             .init_resource::<Assets<Image>>()
+            .init_resource::<Assets<ColorMaterial>>()
+            .init_resource::<Assets<Mesh>>()
+            .insert_resource(OverlayRect(WORK_AREA))
             .insert_resource(PackAtStartup(StartingPack::Loaded { folder, pack }))
             .add_systems(Startup, crate::engine::pack_assets::add_starting_pack)
-            .add_plugins(SimPlugin {
-                work_area: WORK_AREA,
-            })
+            .add_plugins((
+                SimPlugin {
+                    work_area: WORK_AREA,
+                },
+                PixelArtPlugin,
+                ShadowPlugin,
+            ))
             .add_systems(
                 Update,
                 publish_hit_target::<RecordingPlatform>.run_if(resource_exists::<PackAssets>),
             );
-        (app, kept)
+        app
     }
 
     fn change_pet<T: Component<Mutability = Mutable>>(app: &mut App, change: impl FnOnce(&mut T)) {
@@ -460,6 +480,62 @@ mod tests {
         );
     }
 
+    /// The placeholder Pack with a shadow under its Form, in a folder of its own.
+    fn placeholder_with_shadow(test: &str) -> (TestPack, LoadedPack) {
+        let folder = env::temp_dir().join(format!("desktop-pet-renderer-{}-{test}", process::id()));
+        let _ = fs::remove_dir_all(&folder);
+        fs::create_dir_all(folder.join("hatchling")).unwrap();
+        let (placeholder_folder, _) = placeholder();
+        fs::copy(
+            placeholder_folder.join("hatchling/idle.png"),
+            folder.join("hatchling/idle.png"),
+        )
+        .unwrap();
+        let manifest = fs::read_to_string(placeholder_folder.join("manifest.toml")).unwrap();
+        let manifest = manifest.replace(
+            "default_action = \"idle\"",
+            "default_action = \"idle\"
+shadow = { width = 16, colour = \"#22203480\" }",
+        );
+        fs::write(folder.join("manifest.toml"), manifest).unwrap();
+        let pack = pet_content::load(&folder).unwrap_or_else(|errors| panic!("{errors:?}"));
+        assert!(pack.definition.forms[0].shadow.is_some());
+        (TestPack(folder), pack)
+    }
+
+    fn shadow_drawables(app: &mut App) -> usize {
+        let world = app.world_mut();
+        world
+            .query_filtered::<&Mesh2d, With<ShadowOf>>()
+            .iter(world)
+            .count()
+    }
+
+    #[test]
+    fn given_a_pet_with_a_shadow_when_it_is_drawn_and_moves_then_its_published_hit_targets_are_the_same_as_without_one()
+     {
+        // Given: the same Pet, once with a shadow and once without
+        let (plain_folder, plain) = placeholder();
+        let (shadowed_folder, shadowed) = placeholder_with_shadow("hit-target");
+        let mut without = publishing_from(plain_folder, plain);
+        let mut with = publishing_from(shadowed_folder.0.clone(), shadowed);
+
+        // When: each is published, then moves
+        for app in [&mut without, &mut with] {
+            app.insert_resource(RecordingPlatform::default());
+            app.update();
+            change_pet::<Position>(app, |position| position.0 = Point { x: 100, y: 700 });
+            app.update();
+        }
+
+        // Then
+        assert_eq!(shadow_drawables(&mut with), 1, "the shadow is drawn");
+        assert_eq!(shadow_drawables(&mut without), 0);
+        let published = RecordingPlatform::published(&with);
+        assert_eq!(published.len(), 2);
+        assert_eq!(published, RecordingPlatform::published(&without));
+    }
+
     /// A folder of its own for a test's Pack, removed afterwards.
     struct TestPack(PathBuf);
 
@@ -510,7 +586,7 @@ durations_ms = {durations}
     }
 
     #[test]
-    fn given_a_drawn_pet_when_it_changes_to_a_form_with_a_bigger_cell_then_its_sprite_takes_that_size()
+    fn given_a_drawn_pet_when_it_changes_to_a_form_with_a_bigger_cell_then_it_is_drawn_at_that_size()
      {
         // Given
         let (folder, pack) = two_sizes("sizes");
@@ -539,7 +615,7 @@ durations_ms = {durations}
         app.update();
 
         // Then: 48 x 18 art at 2x
-        let sprites = pet_sprites(&mut app);
-        assert_eq!(sprites[0].0.custom_size, Some(Vec2::new(96.0, 36.0)));
+        let drawables = pet_drawables(&mut app);
+        assert_eq!(drawables[0].1.scale, Vec3::new(96.0, 36.0, 1.0));
     }
 }

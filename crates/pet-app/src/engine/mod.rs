@@ -3,18 +3,21 @@
 mod log_file;
 mod overlay;
 mod pack_assets;
+mod pixel_art;
 mod presence;
 mod render_config;
 #[cfg(windows)]
 mod render_config_windows;
 mod render_failure;
 mod renderer;
+mod shadow;
 mod tray_icon;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, mpsc};
 
 use bevy::app::PluginGroupBuilder;
+use bevy::camera::CompositingSpace;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
 use bevy::render::pipelined_rendering::PipelinedRenderingPlugin;
@@ -25,8 +28,10 @@ use pet_core::presence::Presence;
 use pet_sim::SimPlugin;
 
 use overlay::{OverlayRect, PlatformHandle, ShellEventSender};
+use pixel_art::PixelArtPlugin;
 use presence::{CurrentPresence, ManualHideAtExit, ShellEvents};
 use renderer::RendererPlugin;
+use shadow::ShadowPlugin;
 
 pub use pack_assets::PackAtStartup;
 pub use render_config::render_plugin;
@@ -34,8 +39,8 @@ pub use render_failure::{RENDER_FAILURE_EXIT, is_render_failure};
 
 use crate::pack::StartingPack;
 
-/// Draws the Pet the simulation shows into whatever camera exists, on a clear background. `overlay` is the rect the
-/// camera covers, in physical pixels. The Pack comes from `PackAtStartup`.
+/// Draws the Pet the simulation shows, and its shadow, into whatever camera exists, on a clear background. `overlay` is
+/// the rect the camera covers, in physical pixels. The Pack comes from `PackAtStartup`.
 pub struct PetRenderPlugin {
     pub overlay: Rect,
 }
@@ -48,13 +53,16 @@ impl Plugin for PetRenderPlugin {
                 Startup,
                 pack_assets::add_starting_pack.run_if(resource_exists::<PackAtStartup>),
             )
-            .add_plugins(RendererPlugin);
+            .add_plugins((PixelArtPlugin, ShadowPlugin, RendererPlugin));
     }
 }
 
-/// The camera the Pet is drawn with. Pixel art needs no smoothing of its edges.
+/// The camera the Pet is drawn with. Pixel art needs no smoothing of its edges. Half-transparent pixels blend in sRGB,
+/// as an image editor shows them, not in linear light. Over the clear background that leaves each pixel premultiplied
+/// in sRGB, which is what the see-through window's compositor expects, so it shows the Pack's colour over whatever is
+/// behind. Bevy does it with no extra pass: the copy to the window it always makes turns the sRGB values back.
 pub fn pet_camera() -> impl Bundle {
-    (Camera2d, Msaa::Off)
+    (Camera2d, Msaa::Off, CompositingSpace::Srgb)
 }
 
 /// Bevy with the render settings the Pet needs, and no window yet. Pipelined rendering is off: it would hold a frame

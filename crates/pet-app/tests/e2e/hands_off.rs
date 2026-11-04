@@ -8,11 +8,12 @@ use pet_core::geometry::{Point, Rect};
 
 use crate::harness::{
     CursorGuard, Packs, PetProcess, bottom_centre, click, foreground_window, make_dpi_aware,
-    monitor_area, press_hotkey, wait_until, window_under_cursor_at, work_area,
+    monitor_area, placeholder_opaque_colours, press_hotkey, wait_until, window_under_cursor_at,
+    work_area,
 };
 use crate::metrics::{GpuUse, MAX_HIDDEN_CPU_PERCENT, cpu_percent_of_one_core};
-use crate::screen::{Expected, PetView};
-use crate::test_window::TestWindow;
+use crate::screen::{Expected, PetView, colour_at, colours_in};
+use crate::test_window::{BACKGROUND, TestWindow};
 
 /// The largest the placeholder can be: 24 x 18 sprite pixels at the default 2x scale.
 const PET_WIDTH: i32 = 48;
@@ -221,6 +222,81 @@ fn given_a_pack_whose_anchor_is_off_centre_when_sweeping_the_cursor_across_the_p
         misrouted.len(),
         points.len(),
         &misrouted[..misrouted.len().min(10)]
+    );
+}
+
+/// A point on `Packs::WithShadow`'s shadow but off the Pet: 27 pixels left of the Anchor, past the Pet's 24, and in the
+/// shadow's middle rows, which are its full 60 pixels wide.
+fn on_the_shadow_beside_the_pet() -> Point {
+    let work = work_area();
+    Point {
+        x: work.left + work.width() / 2 - 27,
+        y: work.bottom - 8,
+    }
+}
+
+#[test]
+fn given_a_pack_with_a_shadow_when_clicking_the_shadow_beside_the_pet_then_the_window_behind_gets_the_click()
+ {
+    // Given
+    let scene = scene_with(Packs::WithShadow);
+    let point = on_the_shadow_beside_the_pet();
+    assert_ne!(colour_at(point), BACKGROUND, "the shadow is drawn there");
+    let clicks_before = scene.window.clicks();
+
+    // When
+    click(point, &[scene.window.hwnd(), scene.pet.overlay()]);
+
+    // Then
+    assert_eq!(scene.window.clicks(), clicks_before + 1);
+}
+
+#[test]
+fn given_a_pack_with_a_shadow_when_reading_the_screen_then_the_pets_own_pixels_and_its_shadow_are_both_there()
+ {
+    // Given: the shadow covers only the bottom 16 rows, so a placeholder colour higher up is the Pet's own art
+    let scene = scene_with(Packs::WithShadow);
+    let work = work_area();
+    let pet_colours = placeholder_opaque_colours();
+    let above_the_shadow = Rect {
+        bottom: work.bottom - 16,
+        ..scene.area
+    };
+
+    // When
+    let above = colours_in(above_the_shadow);
+    let beside = colour_at(on_the_shadow_beside_the_pet());
+
+    // Then
+    assert!(
+        above.iter().any(|colour| pet_colours.contains(colour)),
+        "none of the Pet's own opaque pixels is on screen"
+    );
+    assert_ne!(beside, BACKGROUND, "the shadow isn't on screen");
+    assert!(
+        !pet_colours.contains(&beside),
+        "beside the Pet should be shadow, not the Pet's art: {beside:?}"
+    );
+}
+
+#[test]
+fn given_a_pack_with_a_shadow_when_reading_the_screen_beside_the_pet_then_the_shadow_is_the_packs_colour_over_the_window()
+ {
+    // Given: #1a132660 over the window's magenta, as an image editor shows it: c x a + behind x (1 - a), with
+    // a = 96 / 255. The engine blends in sRGB and leaves the pixel premultiplied, (10, 7, 14, 96), and the window's
+    // compositor adds the rest. Blending in linear light would have shown (172, 8, 180).
+    let _scene = scene_with(Packs::WithShadow);
+    let want = [169, 7, 173];
+
+    // When
+    let got = colour_at(on_the_shadow_beside_the_pet());
+
+    // Then: within 2 for rounding
+    assert!(
+        got.iter()
+            .zip(want)
+            .all(|(&got, want)| got.abs_diff(want) <= 2),
+        "got {got:?}, want {want:?}"
     );
 }
 

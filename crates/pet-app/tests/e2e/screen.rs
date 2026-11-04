@@ -79,6 +79,26 @@ impl Shot {
     }
 }
 
+/// The colours on screen in `area`, as RGB, row by row from the top.
+pub fn colours_in(area: Rect) -> Vec<[u8; 3]> {
+    capture(area)
+        .bgra
+        .chunks(4)
+        .map(|pixel| [pixel[2], pixel[1], pixel[0]])
+        .collect()
+}
+
+/// The colour on screen at `point`, as RGB.
+pub fn colour_at(point: Point) -> [u8; 3] {
+    let shot = capture(Rect {
+        left: point.x,
+        top: point.y,
+        right: point.x + 1,
+        bottom: point.y + 1,
+    });
+    [shot.bgra[2], shot.bgra[1], shot.bgra[0]]
+}
+
 /// Which window should be under the cursor at a point.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Expected {

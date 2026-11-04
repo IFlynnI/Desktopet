@@ -32,11 +32,17 @@ pub fn place(anchor_at: Point, form: &FormDef, scale: u32, facing: Facing) -> Pl
     }
 }
 
-/// Where the Anchor stands until the Ground plane arrives in roadmap item 4: the bottom centre of the work area.
+/// The Ground plane's height on screen: the bottom of the work area, the top of the taskbar. Nothing is drawn below it.
+pub fn ground(work_area: Rect) -> i32 {
+    work_area.bottom
+}
+
+/// Where the Anchor stands until physics arrives in roadmap item 4: the bottom centre of the work area, on the Ground
+/// plane.
 pub fn home(work_area: Rect) -> Point {
     Point {
         x: work_area.left + work_area.width() / 2,
-        y: work_area.bottom,
+        y: ground(work_area),
     }
 }
 
@@ -146,5 +152,24 @@ mod tests {
 
         // Then: an odd width rounds down
         assert_eq!(home, Point { x: 600, y: 1050 });
+    }
+
+    #[test]
+    fn given_a_work_area_away_from_the_origin_when_finding_the_ground_then_it_is_the_bottom_edge_home_stands_on()
+     {
+        // Given
+        let work_area = Rect {
+            left: 100,
+            top: 50,
+            right: 1101,
+            bottom: 1050,
+        };
+
+        // When
+        let ground = ground(work_area);
+
+        // Then
+        assert_eq!(ground, 1050);
+        assert_eq!(ground, home(work_area).y);
     }
 }

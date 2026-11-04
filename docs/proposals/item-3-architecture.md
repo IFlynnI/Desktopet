@@ -1,6 +1,6 @@
 # Proposal: architecture and code structure for roadmap item 3
 
-**Status:** agreed on 2026-11-03. Slices 1 and 2 are built.
+**Status:** agreed on 2026-11-03. Slices 1, 2 and 3 are built.
 
 This covers item 3: Packs and the renderer, in five slices. It applies the target architecture agreed in the same
 session, which is drawn in [docs/architecture/index.html](../architecture/index.html) and recorded in
@@ -191,7 +191,8 @@ crates/
       pack.rs                    new: the Definition types: PackDefinition, FormDef, ActionDef, AnimationDef, EmoteDef,
                                  Situation, and small number ids interned from Pack names
       animation_clock.rs         new: which Frame shows after a given time, looping or one-shot
-      placement.rs               new: Anchor position, scale and facing become a hit_mask::Placement
+      placement.rs               new: Anchor position, scale and facing become a hit_mask::Placement; the Ground plane
+      shadow.rs                  new: slice 3, the shadow's ellipse and where it goes on the Ground plane
       hit_mask.rs                unchanged
   pet-content/                   new crate
     src/
@@ -220,6 +221,7 @@ crates/
         pack_assets.rs           new: turns the pixels into Bevy images
         renderer.rs              new: draws the Frame the simulation picked; publishes the Hit target
         shadow.rs                new: slice 3
+        pixel_art.rs             new: slice 3, draws everything as a unit quad with a ColorMaterial, not a Sprite
         emote_view.rs            new: slice 4
         tray_icon.rs             new: the app's own icon, so the tray works with no Pack
         placeholder.rs           removed
@@ -250,7 +252,7 @@ crates/
 |---|---|---|---|
 | 1. Pack, loader and validator | The Definition types, `pet-content`, `pet-pack`, the placeholder Pack, the app's own tray icon | `pet-core/pack`, `pet-content/*` except `watch`, `pet-app/engine/pack_assets`, `tray_icon` | `pet-pack validate content/placeholder` passes. The app loads the Pack at startup and the Pet looks and moves exactly as today. A broken Pack shows no Pet, logs every error, and the tray still quits |
 | 2. Simulation, clock and renderer | `pet-sim` with its phases, the Animation clock, the renderer, Anchor placement | `pet-core/animation_clock`, `placement`, `pet-sim/*` except `emotes`, `pet-app/engine/renderer` | The Pet plays its default Action on a loop, timed by the Pack's per-Frame durations, at 2× integer scale, placed by its Anchor. The Hit mask follows the simulation's Frame. Hidden freezes the clock, so the Pet doesn't jump on waking <br>**Built.** The app tells the simulation it's Hidden through `pet_sim::Hidden`. The simulation then pauses Bevy's virtual clock, so the time spent Hidden is never added and the fixed clock has nothing to catch up on |
-| 3. Drop shadow | The shadow under the Anchor, with width and colour from the Pack | `pet-app/engine/shadow` | The shadow draws under the feet and never catches clicks |
+| 3. Drop shadow | The shadow under the Anchor, with width and colour from the Pack | `pet-core/shadow`, `pet-app/engine/shadow`, `pet-app/engine/pixel_art` | The shadow draws under the feet and never catches clicks <br>**Built.** The shadow is a pixel-art ellipse, one texel per Pack pixel, drawn at the Pet's 2x on its own entity behind the Pet. It's `width` Pack pixels wide and a quarter of that high, rounded half up and at least 2, so 30 x 8 for Brim. It's centred on the Anchor's x, with an odd width's extra texel on the right so it stays on the Pet's texel grid. Its bottom row ends on the Ground plane, `placement::ground`, which `home` also uses, because the Overlay stops there. A Form with no shadow hides it, and it's redrawn only when the Form, the Anchor or the Ground plane changes. The Hit target is unchanged by it. **Not `Sprite`:** on DX12 a `Sprite` after the first draw call lands in the wrong place, so the Pet and its shadow are each a unit-quad `Mesh2d` with a `ColorMaterial`, through `engine/pixel_art`, which Emotes will use too ([Sprites on DX12](../research/simulation-architecture.md#sprites-on-dx12)). **Colour:** half-transparent pixels blend in sRGB, as an image editor shows them, through `CompositingSpace::Srgb` on the camera. A shadow pixel is left premultiplied in sRGB, `c x a`, and the window's compositor adds what's behind, so `#1a132660` over magenta should show as (169, 7, 173), within 2. Bevy's default, linear light, would have shown (172, 8, 180). An unrun real-exe test checks it. **Known limitation:** an odd-width shadow keeps its extra texel right of the Anchor when the Pet is mirrored, so it sits half a texel off the mirrored Pet's centre |
 | 4. Emotes | The Pack's Emote library, `ShowEmote` and `HideEmote` | `pet-sim/emotes`, `pet-app/engine/emote_view` | A one-shot Emote plays once and vanishes. A looping one stays until hidden. It sits above the top of the Body, never catches clicks. Headless and windowless render tests cover it until item 4 sends it |
 | 5. Hot reload | The Pack watcher | `pet-content/watch`, `pet-sim/pack` | Windows reports file changes, with no polling. A valid edit replaces the Pack and sends `PackReloaded`. An invalid one keeps the old Pack and logs the errors |
 

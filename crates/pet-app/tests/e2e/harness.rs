@@ -213,7 +213,13 @@ pub enum Packs {
     /// The placeholder with its Anchor 8 art pixels left of centre, so the Pet stands 16 pixels right of where the
     /// placeholder does. See `write_off_centre_pack`.
     OffCentreAnchor,
+    /// The placeholder with `SHADOW` under its Form. See `write_shadowed_pack`.
+    WithShadow,
 }
+
+/// The shadow `Packs::WithShadow` adds: 30 art pixels wide, so at 2x it reaches 6 pixels past each side of the
+/// 48-pixel Pet, and 8 high. Its colour is content/firstborn's.
+pub const SHADOW: &str = r##"shadow = { width = 30, colour = "#1a132660" }"##;
 
 /// Where the mistakes in `Packs::Broken` are, as the log names them.
 pub const BROKEN_FIELDS: [&str; 2] = [
@@ -223,6 +229,23 @@ pub const BROKEN_FIELDS: [&str; 2] = [
 
 fn placeholder_pack() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/placeholder")
+}
+
+/// Every colour the placeholder's Frames draw fully opaque, as RGB.
+pub fn placeholder_opaque_colours() -> Vec<[u8; 3]> {
+    let pack = pet_content::load(&placeholder_pack()).unwrap_or_else(|errors| panic!("{errors:?}"));
+    let form = pack.definition.starting_form;
+    let mut colours: Vec<[u8; 3]> = pack
+        .pixels
+        .frames(form, pack.definition.form(form).default_animation())
+        .iter()
+        .flat_map(|frame| frame.rgba.chunks(4))
+        .filter(|pixel| pixel[3] == 255)
+        .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+        .collect();
+    colours.sort_unstable();
+    colours.dedup();
+    colours
 }
 
 fn copy_folder(from: &Path, to: &Path) {
@@ -270,6 +293,25 @@ fn write_off_centre_pack(folder: &Path) {
     fs::write(manifest, moved).expect("write the moved manifest");
 }
 
+/// The placeholder Pack with `SHADOW` under its Form.
+fn write_shadowed_pack(folder: &Path) {
+    copy_folder(&placeholder_pack(), folder);
+    let manifest = folder.join("manifest.toml");
+    let text = fs::read_to_string(&manifest).expect("read the manifest");
+    let shadowed = text.replace(
+        "default_action = \"idle\"",
+        &format!(
+            "default_action = \"idle\"
+{SHADOW}"
+        ),
+    );
+    assert_ne!(
+        shadowed, text,
+        "the placeholder manifest changed, so update this"
+    );
+    fs::write(manifest, shadowed).expect("write the shadowed manifest");
+}
+
 /// A folder of its own for the app's files, so tests never touch the owner's log or Packs. It goes when the test ends.
 /// A test is its own process, so the process ID makes this unique.
 pub struct TestData(PathBuf);
@@ -300,6 +342,7 @@ impl TestData {
             Packs::Empty => {}
             Packs::Broken => write_broken_pack(&usual.join("placeholder")),
             Packs::OffCentreAnchor => write_off_centre_pack(&usual.join("placeholder")),
+            Packs::WithShadow => write_shadowed_pack(&usual.join("placeholder")),
             Packs::OverriddenWithBroken => {
                 copy_folder(&placeholder_pack(), &usual.join("placeholder"));
                 let elsewhere = self.0.join("other-packs");

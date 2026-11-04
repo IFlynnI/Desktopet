@@ -50,7 +50,8 @@ impl Picture {
     }
 
     /// Draws `art` at `scale` with its top-left at (`left`, `top`), each art pixel a `scale` x `scale` square,
-    /// mirrored when `mirrored`.
+    /// mirrored when `mirrored`. A clear art pixel leaves what is underneath, as blending does. Other art pixels
+    /// replace it, so they must be opaque or land on clear pixels.
     pub fn draw(&mut self, art: &Picture, left: u32, top: u32, scale: u32, mirrored: bool) {
         for y in 0..art.height * scale {
             for x in 0..art.width * scale {
@@ -60,7 +61,10 @@ impl Picture {
                 } else {
                     column
                 };
-                self.set(left + x, top + y, art.pixel(column, y / scale));
+                let pixel = art.pixel(column, y / scale);
+                if pixel != [0; 4] {
+                    self.set(left + x, top + y, pixel);
+                }
             }
         }
     }

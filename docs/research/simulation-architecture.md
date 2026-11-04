@@ -733,6 +733,23 @@ core, and **machine** as a share of all 32. All figures are **Measured**, one ru
 
 Counting the texture as a sampler looks like a Bevy bug. Whether a later Bevy fixes it wasn't checked.
 
+### Sprites on DX12
+
+**Found 2026-11-04, while building the drop shadow.** On DX12, Bevy 0.20.1's `Sprite` draws only the first draw call of a
+frame in the right place. Each later one takes another sprite's position, or none. Sprites that share one material are
+batched into one call, so they look fine. Measured in a windowless render test on the RTX 2080 Ti.
+
+- Bevy's sprite vertex shader, `sprite_mesh/sprite_material.wesl`, starts with `let instance_index =
+  vertex.instance_index;`. wgpu's DX12 backend adds the draw's first instance to that index, and the named copy appears
+  to get it added again. **Inference**, from naga 30.0.1's HLSL writer. The generated HLSL wasn't read.
+- A `Mesh2d` with a `ColorMaterial` uses the default 2D mesh shader, which reads the index directly. It was drawn in the
+  right place as a later draw call. **Measured.**
+- So the app draws the Pet, its shadow and Emotes as a `Mesh2d` with a `ColorMaterial`, not a `Sprite`
+  (`crates/pet-app/src/engine/pixel_art.rs`). A render test with several drawables and different images guards it.
+- **The figures in this section need measuring again.** The stress app drew `Sprite`s with 1 or 20 textures and
+  random atlas frames. It checked only that each sprite was `ViewVisibility` true, never what reached the screen, so
+  most of its draw calls probably drew in the wrong place or not at all. Not re-measured yet.
+
 ### Where the comparison isn't fair
 
 - **Background load.** Other processes used 5 to 10% of the machine throughout, about 2 to 3 cores. The owner was using
