@@ -404,6 +404,7 @@ pub fn read_snapshot() -> Snapshot {
 
 #[cfg(test)]
 mod tests {
+    use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
     use std::sync::{Arc, Mutex};
@@ -618,6 +619,47 @@ mod tests {
 
         // Then
         assert_eq!(running.reads.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn given_a_wait_that_ends_when_the_foreground_changes_during_the_read_then_the_new_wait_is_kept()
+     {
+        // Given: a wait is running, and the next read will see the foreground change. This thread runs no message
+        // loop, so only the messages sent below happen, each straight away.
+        let change_during_read = Rc::new(Cell::new(false));
+        let changes = change_during_read.clone();
+        let read = move || {
+            if changes.replace(false) {
+                // SAFETY: this is how Windows calls the hook on this thread, and it ignores every argument.
+                unsafe {
+                    on_foreground_change(
+                        HWINEVENTHOOK::default(),
+                        EVENT_SYSTEM_FOREGROUND,
+                        HWND::default(),
+                        0,
+                        0,
+                        0,
+                        0,
+                    )
+                };
+            }
+            snapshot(false)
+        };
+        let foreground = Foreground::<TestSignals>::start_with(read, |_| {}, RETURN_DELAY);
+        let window = foreground._window.0;
+        // SAFETY: takes plain values, and the window belongs to this thread, so this returns once it's handled.
+        unsafe { SendMessageW(window, SHELL_MESSAGE, None, None) };
+        change_during_read.set(true);
+
+        // When: the wait ends, and the check reads the screen
+        // SAFETY: as above.
+        unsafe { SendMessageW(window, WM_TIMER, Some(WPARAM(CHECK_SOON_TIMER)), None) };
+
+        // Then: the wait the change started is still running, so the re-check leaves it alone
+        assert!(!change_during_read.get(), "the read saw the change");
+        let mut re_check_starts_a_wait = None;
+        with_watcher(|watcher| re_check_starts_a_wait = Some(watcher.checks.get().re_check_due()));
+        assert_eq!(re_check_starts_a_wait, Some(None));
     }
 
     #[test]
