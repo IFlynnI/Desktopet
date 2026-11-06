@@ -4,3 +4,6 @@
 # Both stop at the first failure, so a running Pet or a moved mouse ends the run straight away.
 e2e = "nextest run --profile e2e -p pet-app --features e2e"
 e2e-quiet = "nextest run --profile e2e-quiet -p pet-app --features e2e"
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld.exe"
