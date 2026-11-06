@@ -86,8 +86,18 @@ _Avoid_: Behaviour, move, state
 
 **Situation**:
 Something that happens to the Pet rather than something it chooses, such as being held, falling or landing. Each
-Form says which of its Animations to play for each Situation.
-_Avoid_: Built-in Action, state, reaction
+Form says which of its Animations to play for each Situation, and while one applies, the Pet can still choose Actions
+that allow it.
+_Avoid_: Built-in Action, state, Reaction (that answers a Gesture)
+
+**Evolution**:
+A permanent change from one Form to another. Once its conditions are met it waits for the owner to choose it, and it
+is never automatic.
+_Avoid_: Level-up, transformation
+
+**Transformation**:
+A temporary change into another Form that ends by itself, such as the dragon's ultra mode in a fight.
+_Avoid_: Evolution, power-up
 
 **Anchor**:
 The point where the Pet's feet meet the ground. Where the Pet is means where its Anchor is, and it turns around this
@@ -119,6 +129,20 @@ The rectangle an Actor takes up in the world, used for landing on the Ground pla
 used for clicks or combat.
 _Avoid_: Collider, bounds, Hit mask
 
+**Obstacle**:
+A solid rectangle in the world that Bodies collide with and can stand on. The Ground plane and the screen edges are the
+first ones the Pet meets.
+_Avoid_: Wall, platform, collider
+
+**Material**:
+How grippy and how bouncy a surface or a Body is. Each Form gives its Body one, and an Action can override it while it
+runs, such as a landing that never bounces.
+_Avoid_: Physics material, surface type
+
+**Prop**:
+A thing in the world that can be thrown, hit or stood on but has no Mind, such as a ball.
+_Avoid_: Toy, item, object
+
 **Hurt box**:
 The rectangle where an Actor can be struck.
 _Avoid_: Hitbox
@@ -127,6 +151,66 @@ _Avoid_: Hitbox
 The rectangle an attack, a Projectile or a thrown Pet hits with. It only counts while the attack is live, and each
 target is struck at most once per attack.
 _Avoid_: Hitbox, attack box
+
+### The Mind
+
+**Drive**:
+An inner urge that rises and falls by itself, such as energy or playfulness, and makes some Actions more appealing.
+The owner never has to tend one.
+_Avoid_: Need, stat, meter
+
+**Trait**:
+A lasting side of a Character's personality, such as playful or bold, set by its Pack. Traits don't change from moment
+to moment; they tilt every choice the Mind makes.
+_Avoid_: Stat, attribute, personality setting
+
+**Feature**:
+A named reading of the world that the Mind can notice and learn about, such as how high the Pet is or whether the cursor
+is near.
+_Avoid_: Sensor, input, variable
+
+**Link**:
+Something the Pet has learned: after an Action in a certain context, a certain result tends to follow.
+_Avoid_: Association (that is an opinion of a subject), rule, edge
+
+**Experiment**:
+A choice the Pet makes to try something it knows little about. It is always shown to the owner and stays within limits.
+_Avoid_: Random action, exploration
+
+**Routine**:
+A multi-step plan the Pet has discovered by chaining Links.
+_Avoid_: Habit, combo, script
+
+**Landmark**:
+A moment the Pet remembers for good because it stood out, such as its first throw or a personal best. Only a few are
+kept, and the weakest makes way for a stronger one.
+_Avoid_: Highlight, milestone, core memory
+
+**Rhythm**:
+What the Pet has learned about when the owner is usually around, hour by hour. The owner can see it, reset it or turn
+it off.
+_Avoid_: Schedule, habit, Routine (that is a plan the Pet discovered)
+
+### The owner and the Pet
+
+**Gesture**:
+Something the owner does to the Pet with the pointer, such as a poke, a stroke, or a drag and throw.
+_Avoid_: Input, click, interaction
+
+**Marker**:
+A Gesture that says "that one, right then" without being a reward itself. The Pet learns what it is worth by noticing
+what follows it, the way a clicker works in animal training.
+_Avoid_: Clicker, reward, confirm
+
+**Reaction**:
+What the Pet does in answer to a Gesture, such as giggling when poked. Each Form says which of its Actions answers each
+Gesture.
+_Avoid_: Response, reflex, Situation (what happens to the Pet, not what it does in answer)
+
+**Pet panel**:
+The separate window where the owner sees what the Pet is thinking and why, tunes it and changes its settings. Once
+closed, nothing of it stays in the Pet.
+_Avoid_: Settings window, dashboard, inspector, dev panel
 
 ### Domain
 
@@ -137,3 +221,16 @@ _Avoid_: Config, template, blueprint
 **Progress**:
 What the Pet has become and remembers, kept per Character so that switching Characters never loses it.
 _Avoid_: Save data, state
+
+**XP**:
+Experience the Pet earns from what happens to it, such as being petted or hatching. How much each kind of event earns
+can be tuned, and XP is never lost.
+_Avoid_: EXP, points, score
+
+**Level**:
+How far the Pet has grown, worked out from its total XP. It never drops, and reaching one can open an Evolution.
+_Avoid_: Rank, tier, stage
+
+**Ledger**:
+The Pet's record of all the XP it has earned, in total and by kind of event. It only ever grows.
+_Avoid_: XP bar, balance, wallet

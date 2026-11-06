@@ -24,12 +24,29 @@ The first character is a **dragon** that hatches from an egg the moment you firs
 Every feature is judged against these. A feature that serves none of them is questioned; a feature that
 violates one needs an explicit justification.
 
-1. **Alive** — it behaves for reasons; nothing it does is random. Its reasoning is visible.
+1. **Alive** — it behaves for reasons, and its reasoning is visible. When it experiments it shows it (❓), its
+   experiments stay within limits and fade as it learns, and nothing it does goes unexplained.
 2. **Never in the way** — click-through, auto-hide, no guilt mechanics, nothing attention-grabbing while
    you focus.
 3. **Better together** — you and the pet are a team, in play and (later) in combat.
 4. **Grows with you** — progression is *visible*: it hatches, grows, evolves and transforms in the art
    itself, never just in a number.
+
+### 2.1 Design principles (2026-11-06)
+
+How the pillars are kept as the Pet grows more capable:
+
+- **Emergence.** Actions and mechanics are authored, and how they combine is learned. The Pet learns to combine what
+  it can do through play with the owner and through its own Experiments, the way players find strategies the
+  designers never planned ([ADR-0005](adr/0005-a-learning-mind-with-reasons.md)).
+- **No scenario-specific Actions.** No Action or rule exists only to make one scenario work. New Actions are general
+  building blocks, useful in their own right. Mechanics are general and compose: a smash's damage comes from the fall
+  speed physics already gives, not from a special rule.
+- **"Why" is a hard rule.** Every choice traces back to named causes: drives, memories, learned Links or an
+  Experiment. This keeps deep neural networks out of the Mind for now. It's revisited if the Pet's intelligence falls
+  short.
+- **Packs are data, mechanisms are Rust.** A Pack names its Actions, drives, traits, Materials and Mind. The kinds of
+  node, effect and rule they are built from are written in Rust, with no scripting.
 
 ## 3. Audience and platform
 
@@ -65,6 +82,23 @@ Plus all acceptance criteria in §5 and the non-functional budget in §6.
 ## 5. MVP functional requirements
 
 IDs are stable references for issues and tests.
+
+**Where each requirement is delivered** (roadmap §9.1; item 4's slices are in
+[item-4-architecture.md](proposals/item-4-architecture.md)):
+
+| Delivered by | Requirements |
+|---|---|
+| Items 2 and 3 (built) | WIN-01–04, WIN-07–11, REN-01–05 (REN-04 draws Emotes; item 4 slice 7 decides when to show them) |
+| Item 4, slice 1: Ground + throw | WIN-06, INT-01; BEH-06 fall, land, being-held |
+| Item 4, slice 2: Save | SAV-01, SAV-02, SET-02 |
+| Item 4, slice 3: Petting + hatching | INT-02, PRG-01, PRG-02, PRG-05 |
+| Item 4, slice 4: Reactions | INT-04 (a single poke); BEH-06 react-to-poke, being-petted |
+| Item 4, slice 5: XP + Level | PRG-03, PRG-04, PRG-06, INT-05 |
+| Item 4, slice 6: Pet panel | Hosts SET-01 and the balancing panel of §8.2 |
+| Item 4, slice 7: The Mind | BEH-01, BEH-02, BEH-05, BEH-07; BEH-06 idle, walk, sit, sleep |
+| Item 4, slice 8: Senses + memory | BEH-03, BEH-04, INT-03 (moved from the old item 5), INT-04 (combos); BEH-06 look-at, follow/pounce |
+| Item 4, slice 9: Settings + the rest | SET-01, SAV-03, AUD-01, WIN-05, rebinding for WIN-08, and PKG-01 |
+| Every slice | SEN-01, SEN-02 |
 
 ### 5.1 Desktop presence
 
@@ -175,6 +209,8 @@ Pure domain logic, independent of the engine, built test-first (§7.2).
 | Games / fullscreen | zero impact — pet is hidden and not rendering |
 | During an Encounter | A loose guideline, not a gate: about 1.5 cores (5 % of the machine) and 250 MB, with 1,000 enemies as the normal case and 10,000 as the tested ceiling. Going over means revisiting the budget, not optimising early. The first goal is 200 enemies. Measured in [simulation-architecture.md](research/simulation-architecture.md). |
 
+| While the Pet panel is open | A loose guideline, not a gate: about 200 MB and about 2 % CPU for the Pet and the panel together. The budgets above apply while the panel is closed, and closing it must bring the Pet back to them. Measured in [dev-panel.md](research/dev-panel.md); see [ADR-0004](adr/0004-pet-panel-as-a-separate-program.md). |
+
 To be **revisited** if/when live Live2D/3D rendering is introduced (Track 7).
 
 ### 6.3 Robustness
@@ -243,11 +279,20 @@ Dependencies point inward:
 - ECS systems are thin adapters. They hold the core's types as components, call its rules, and feed in inputs
   (time, cursor, idle state). The renderer only reads their results. Swapping Bevy would keep the rules but
   rewrite those systems (see [ADR-0002](adr/0002-simulation-in-its-own-ecs-crate.md)).
-- The layers are four crates (see [ADR-0001](adr/0001-os-boundary-crate.md)):
-  - `pet-core` for the domain core.
+- The layers are these crates (see [ADR-0001](adr/0001-os-boundary-crate.md)):
+  - `pet-physics` for the physics rules and the geometry types, with no dependencies
+    ([ADR-0003](adr/0003-own-physics-with-a-grab-string.md)).
+  - `pet-core` for the rest of the domain core. It depends only on `pet-physics`, so it has no external dependencies.
+  - `pet-content` for reading and checking Packs.
+  - `pet-save` for the save file: its own types, the chain of migrations, and reading and writing.
   - `pet-sim` for the simulation's ECS systems, with no rendering.
   - `pet-platform` for the platform adapters, one folder per operating system behind an OS-neutral API.
+  - `pet-protocol` for the message types of the pipe between the Pet and the Pet panel, with no workspace
+    dependencies, so the panel shares nothing else with the Pet.
   - `pet-app` for everything else, including the renderer.
+- The Pet panel is a separate program, `pet-panel`, built with Tauri 2, React and `pnpm`. It edits the files in the
+  config folder, reads a live pipe from the Pet, and sends it a small closed set of commands
+  ([ADR-0004](adr/0004-pet-panel-as-a-separate-program.md)).
 
 ### 7.3 Content packs and the character format
 
@@ -278,6 +323,10 @@ memory and fixed personality traits. Per-form trait modifiers (§8.3) feed into 
 - Every XP source (each interaction type, active time, and later focus sessions, encounters,
   achievements) is **declared as data**: base value, multiplier, optional cap / diminishing-returns
   curve, enabled/priority flag.
+- XP is a **configurable matrix of rules** in `balance.toml`, in the config folder, and hot-reloaded. Each rule names
+  the event kind that earns it, a base amount, context modifiers (such as ×2 for a record-high throw), a diminishing
+  curve for repeats, an optional cap per hour or day, and an on/off switch. A new source is a new row, with no code.
+  Item 4 starts with interactions (petting, pokes, throws, hard landings) and a one-off bonus for hatching.
 - The **level curve** is data.
 - A **dev balancing panel** to tweak values live and replay the formula.
 - Rebalancing never requires code changes.
@@ -313,12 +362,24 @@ memory and fixed personality traits. Per-form trait modifiers (§8.3) feed into 
    3. The drop shadow.
    4. Emotes.
    5. Hot reload.
-4. Domain core: behaviour engine, XP engine, form graph, pet physics including the ground plane (WIN-06).
-5. MVP interactions (throw, petting, cursor play, poke combos).
-6. Settings, save file, backups, export/import, optional SFX. Settings include the Return delay (`RETURN_DELAY` in `pet-core`).
-7. First real character pack: egg + hatch sequence + hatchling at the MVP art bar.
+4. **The living Pet, in nine slices** ([item-4-architecture.md](proposals/item-4-architecture.md)). The old items 4
+   (domain core), 5 (interactions) and 6 (settings and save) are re-cut, so the owner can interact with the Pet and
+   keep its progress from the start:
+   1. Ground + throw: `pet-physics`, the Ground plane, work-area changes, Obstacles, Materials and the grab string.
+   2. Save: `pet-save`, one versioned JSON file with a checksum, migrations and rolling backups.
+   3. Petting + hatching: strokes, the Form graph, and the egg hatching when the owner pets it enough.
+   4. Reactions: Actions with timing, effects and their own Body, played in answer to Gestures.
+   5. XP + Level: the XP matrix, the level curve, the right-click menu, and one hot reload system for every file.
+   6. Pet panel: the separate Tauri program and its live pipe, with Progress and Balance tabs.
+   7. The Mind: Pack drives and traits, a tree of utility choices, Emotes as reasons, and the Mind tab.
+   8. Senses + memory: cursor, idle time and time of day; two-speed memory; learned Links, Experiments and the
+      Marker.
+   9. Settings + the rest: the Settings tab, export/import, optional SFX, and an installable build (PKG-01) that
+      includes the panel program and WebView2. Settings include the Return delay (`RETURN_DELAY` in `pet-core`).
+5. First real character pack: egg + hatch sequence + hatchling at the MVP art bar.
 
-Development on 2–6 runs against placeholder art; 7 runs in parallel and gates "MVP done".
+Development on item 4 runs against placeholder art and Brim; 5 runs in parallel and gates "MVP done". Each slice of
+item 4 ends with something the owner can do to the Pet by hand, as well as its automated tests.
 
 ### 9.2 Parallel tracks (post-MVP, pulled in whenever desired)
 
@@ -326,7 +387,7 @@ Each track has its own backlog; increments are added as they feel right.
 
 | # | Track | Highlights |
 |---|---|---|
-| 1 | **Behaviour & Personality** | Richer drives, longer-term memory, more context reactions, more idle variety. |
+| 1 | **Behaviour & Personality** | Richer drives, longer-term memory, more context reactions, more idle variety. The planner that chains learned Links into Routines, and the visual Mind editor in the Pet panel. |
 | 2 | **Interactions** | Toys (ball/yarn with physics), feeding (treat pouch), naming, tricks (after leveling). |
 | 3 | **Encounters & RPG** | See §10.2 — portals, co-op combat, loot, relics, ultra mode, expeditions, dungeons. Exploratory: prototype before specifying. |
 | 4 | **Productivity** | Focus/Pomodoro timer, break & stretch reminders, hydration reminders — delivered by the pet, not system toasts. Calendar-aware do-not-disturb later (needs OAuth). |
@@ -395,6 +456,24 @@ fights at your side, and eventually talks with you — while never getting in yo
    harpy, orcess, etc. — each with multiple evolutions. Forms change movement mode (slither, fly, swim…),
    traits and combat kit. Unlocked forms stay switchable.
 
+### 10.6 A Mind that learns (north star, 2026-11-06)
+The Mind should come to understand its surroundings and the situations it is in, learn fast from few tries, and
+remember for a long time. What it can do grows by combining general Actions in ways nobody wrote down, learned from
+play with the owner and from its own Experiments (§2.1, [ADR-0005](adr/0005-a-learning-mind-with-reasons.md)). The
+owner can also teach it, by rewarding what it does and marking the moment that was right.
+
+Two illustrations from the owner, examples only and not requirements:
+- After a little practice of being thrown and then smashing, the Pet comes to the owner's cursor in a fight. Once
+  thrown over a group of enemies, it smashes when it is above their middle.
+- When the owner throws a ball, the Pet learns to shoot at it, because that gets rewarded.
+
+The MVP builds the foundations: Features, learned Links, Experiments, the Marker and decision records. It also ships
+one real loop in companion mode: the Pet notices which of its Actions the owner rewards, and in which situation, and
+does them more then, and says why. Track 1 adds the planner that chains Links into Routines. How the Pet *tells* the
+owner what it wants is a separate system: Emotes now, natural language with the AI track (§10.4).
+Research: [pet-memory.md](research/pet-memory.md), [mind-architecture.md](research/mind-architecture.md),
+[teachable-mind.md](research/teachable-mind.md), [neural-mind.md](research/neural-mind.md).
+
 ## 11. Open questions
 
 | # | Question | Notes |
@@ -443,7 +522,7 @@ fights at your side, and eventually talks with you — while never getting in yo
 | One Pet on screen; Progress kept per Character (2026-11-02) | Switching Characters must never lose progress (PRG-06). |
 | Encounters get their own budget, and companion mode stays light (2026-11-02) | The owner is focused on a fight, but works alongside the Pet the rest of the time. |
 | The simulation runs on Bevy's ECS in a `pet-sim` crate, and its rules stay in `pet-core` (2026-11-03) | Measured: speed doesn't separate the options, so coupling did. See [ADR-0002](adr/0002-simulation-in-its-own-ecs-crate.md). |
-| No physics engine; rectangles for the world and combat, pixels for clicks; 30 ticks a second (2026-11-03) | Nothing rotates, stacks or hangs on joints. A swept test stops fast Projectiles passing through. |
+| No physics engine; rectangles for the world and combat, pixels for clicks; 30 ticks a second (2026-11-03) | Nothing rotates, stacks or hangs on joints. A swept test stops fast Projectiles passing through. Amended on 2026-11-06 by [ADR-0003](adr/0003-own-physics-with-a-grab-string.md): own physics in `pet-physics`, a grab string. |
 | No built-in Actions, only a short list of Situations (2026-11-03) | The Mind's choices are Pack data. Only what the simulation causes itself (held, falling, landing) needs a fixed name. |
 | During an Encounter the Overlay catches every click on the Home monitor (2026-11-03) | A stray click mustn't reach an app underneath. The fight stays on the desktop, and Escape forfeits. |
 | A Pack loads completely or not at all; until Settings exist the first by folder name is used; the tray icon is the app's own (2026-11-03) | A half-loaded Pet is harder to understand than a clear error list. The tray must work with no Pack, so you can still quit. |
@@ -452,7 +531,27 @@ fights at your side, and eventually talks with you — while never getting in yo
 | Half-transparent pixels blend in sRGB, as an image editor shows them (2026-11-04) | Pixel art should look as it was drawn. Opaque pixels are the same either way. |
 | Animation clocks count whole ticks, and every Frame lasts at least one tick, 34 ms (2026-11-04) | A Frame then lasts exactly as long as the Pack says and is never skipped. `pet-pack validate` rejects shorter Frames. |
 | Emotes are asked for with one ordered message, `EmoteRequest` (2026-11-04) | A hide and a show in the same tick then mean what they were sent to mean. The target keeps an Actor on it, so enemies can show Emotes in item 4. |
-| On a Pack reload, a Pet still in its starting Form follows a changed `starting_form`; any other Form is kept by name (2026-11-06) | Otherwise an author who changes `starting_form` sees nothing. Only the Form the Pet is in now counts, so two edits can still move a grown Pet back; item 4's Progress must close that. |
+| On a Pack reload, a Pet still in its starting Form follows a changed `starting_form`; any other Form is kept by name (2026-11-06) | Otherwise an author who changes `starting_form` sees nothing. Only the Form the Pet is in now counts, so two edits can still move a grown Pet back; item 4's Progress must close that. Slice 3 closes it, with a saved flag for having left the starting Form. |
+| Items 4–6 re-cut into one item, "The living Pet", in nine slices; the real character becomes item 5 (2026-11-06) | Interacting with the Pet is how the owner checks the Mind, memory and senses, and saving is needed as soon as the Pet hatches. The slices crossed the old item boundaries, so three numbers would mislead. |
+| Obstacles: solid rectangles on all four sides, listed by hand in `obstacles.toml` and drawn as faint outlines (2026-11-06) | One general kind of thing the Pet collides with and stands on, so the physics is general and the swept test can be tried by hand. The Ground plane and screen edges are the first ones. Window rectangles join the list in Track 7. |
+| Hand-edited files live in `%LOCALAPPDATA%\DesktopPet\config\` (2026-11-06) | Windows watches folders, not files, and the log next to them is written all the time. Its own folder keeps the watcher asleep. |
+| The save is one JSON file with a checksum, not SQLite (2026-11-06) | At 5,000 records JSON loads in 3.2 ms and saves in 6 ms, against SQLite's 2.6 ms and 1.1 ms per change; nothing measured comes near the budget. JSON adds 187 KB against 1.8 MB and the app's first C compile, and stays readable. Without a check, all 20 bit flips loaded wrong data, so the checksum is required. Revisit at about 10 MB. See [persistence.md](research/persistence.md). |
+| Saves are written at most 2 s after a change, and at once on quit or hide; backups at each launch and daily (2026-11-06) | A power cut loses at most 2 s, which bends PRG-06 by that much. The last 3 launch copies and 7 daily ones are kept. A file that fails to load is set aside and never overwritten. |
+| Persistence gets its own crate, `pet-save` (2026-11-06) | Its file types, migrations and IO stay out of `pet-core`, as `pet-content` does for Packs. |
+| Physics is our own code in a `pet-physics` crate with upright boxes (2026-11-06) | It was the fastest and smallest option measured, and it fits ADR-0002. It amends the 2026-11-03 decision for the grab string and choices while held or falling. See [ADR-0003](adr/0003-own-physics-with-a-grab-string.md). |
+| Every surface and Body has a Material, and an Action's override beats the combine rule (2026-11-06) | Sliding down a wall, bouncing off it and a hero landing that never bounces all need it. |
+| Grabbing is a short springy string from the cursor; the Pet never rotates (2026-11-06) | Flicking and swinging build momentum without spinning the art or the Body, so the Hit mask, the shadow and the Emotes are unaffected. |
+| The Pet panel is a separate Tauri 2 + React program that edits files; its pipe carries live data out and a closed set of commands in (2026-11-06) | It's the only option that costs nothing when closed, and WebView2 gives the most creative freedom. Commands cover what the Pet owns, such as Evolve and import, which files can't change safely. The message types live in `pet-protocol`. See [ADR-0004](adr/0004-pet-panel-as-a-separate-program.md). |
+| PKG-01 in slice 9 (2026-11-06) | It was in no item before; packaging now has to include the panel program and WebView2. |
+| The Mind learns, "why" is a hard rule, and Experiments are seeded and labelled; pillar 1 reworded (2026-11-06) | Capabilities should emerge from general Actions, which needs learning and some exploration, without losing visible reasons. See [ADR-0005](adr/0005-a-learning-mind-with-reasons.md). |
+| A middle click on the Pet is the Marker, and its worth is learned from the petting that follows (2026-11-06) | Petting is too slow to mark a split-second choice and interrupts what the Pet is doing. A plain click is a poke, and a hotkey would break mouse-only play. |
+| Memories consolidate during any Action tagged `rest`, plus a background timer whose rate is a balance number (2026-11-06) | Sleep stays free for the productivity features, and a Pet that rarely rests still consolidates. |
+| The Pet's lasting opinion of the owner never goes below 0 (2026-11-06) | It can be lastingly wary of the cursor and sulk for a while, but never resentful of the owner, which keeps "no guilt" and "better together". |
+| Rhythm learning and a local decision log are on by default, visible in Settings, and can be reset or turned off (2026-11-06) | Both are profiles of the owner, kept on the machine only. The log, about 50–300 KB a day for 30 days, is how the owner checks what the Mind did and what later tuning tools learn from. |
+| One Mind format for the Pet and every enemy (2026-11-06) | One editor and one validator. Simple enemies use only priority nodes. |
+| The owner's Mind edits are a per-Character override over the Pack (2026-11-06) | A Pack update can't wipe them, and a bad edit can't fail the Pack's validation. What the Pet learned is a third, separate layer in Progress. |
+| One hot reload system serves Packs, `balance.toml`, `obstacles.toml` and `settings.toml` (2026-11-06) | It's written once, and the Pack is the first source moved onto it. The save file is excluded because the app writes it. |
+| `format_version` stays 1 through the MVP (2026-11-06) | Only the owner's Packs exist. Bumps and migrations for Packs start when Packs are shared. |
 
 ## 13. References
 

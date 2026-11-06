@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8377", "--bind", "127.0.0.1", "--directory", "docs/architecture"],
       "port": 8377
+    },
+    {
+      "name": "research",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8379", "--bind", "127.0.0.1", "--directory", "docs/research"],
+      "port": 8379
     }
   ]
 }

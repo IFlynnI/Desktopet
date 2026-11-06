@@ -1,0 +1,193 @@
+<!doctype html>
+<!-- The "Pet panel" mockup as it would look in a WebView2 window: plain HTML, CSS, SVG and Canvas, no libraries,
+     no downloaded fonts or images (Bahnschrift and Segoe Print ship with Windows). Everything here animates. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pet panel - HTML / WebView2 mockup</title>
+<style>
+  :root {
+    --ink: #2B2340; --cream: #FFF7EE; --coral: #FF7A59; --mint: #3DD6B5; --grape: #8B5CF6; --sun: #FFC542;
+    --title: "Segoe Print", "Comic Sans MS", cursive; --body: "Bahnschrift", "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: var(--body); color: var(--ink); overflow: hidden;
+    background: linear-gradient(160deg, #FFD8C2 0%, #E9D5FF 65%, #C8F5E8 100%);
+  }
+  .stage { position: relative; width: 1200px; height: 760px; margin: 0 auto; }
+  .confetti span {
+    position: absolute; border-radius: 50%; opacity: .45; animation: float 7s ease-in-out infinite;
+  }
+  @keyframes float { 50% { transform: translateY(-14px) scale(1.15); } }
+
+  header { position: absolute; left: 26px; top: 22px; right: 26px; height: 80px; display: flex; align-items: center; gap: 16px; }
+  .face {
+    width: 62px; height: 62px; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #FFE08A, var(--sun) 60%);
+    position: relative; box-shadow: 0 6px 18px #FFC54288; animation: bob 3s ease-in-out infinite;
+  }
+  .face i { position: absolute; top: 22px; width: 8px; height: 8px; border-radius: 50%; background: var(--ink); animation: blink 4s infinite; }
+  .face i:first-child { left: 17px; } .face i:nth-child(2) { right: 17px; }
+  .face b { position: absolute; left: 21px; top: 33px; width: 20px; height: 10px; border: 3px solid var(--ink); border-top: none; border-radius: 0 0 12px 12px; }
+  @keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(.1); } }
+  @keyframes bob { 50% { transform: translateY(-4px) rotate(-3deg); } }
+  h1 { font-family: var(--title); font-size: 34px; margin: 0; line-height: 1; }
+  .sub { font-size: 16px; opacity: .7; margin-top: 4px; }
+  nav { margin-left: auto; display: flex; gap: 14px; position: relative; }
+  nav button {
+    font: 20px var(--body); color: var(--ink); height: 44px; padding: 0 22px; border-radius: 22px; cursor: pointer;
+    border: 2px solid white; background: #FFFFFF8C; transition: transform .2s, background .3s, color .3s, box-shadow .3s;
+  }
+  nav button:hover { transform: translateY(-2px) rotate(-2deg); }
+  nav button.on { background: var(--coral); color: white; border-color: transparent; box-shadow: 0 6px 14px #FF7A5980; }
+  nav button.on::after { content: ""; position: absolute; width: 8px; height: 8px; border-radius: 50%; background: var(--coral); margin: 52px 0 0 -26px; }
+  .sunbadge { width: 60px; height: 60px; margin-left: 18px; animation: spin 18s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .card {
+    position: absolute; background: var(--cream); border: 2px solid white; border-radius: 22px; padding: 18px 20px;
+    box-shadow: 0 10px 28px #00000026; animation: rise .7s cubic-bezier(.2, 1.4, .4, 1) both;
+  }
+  @keyframes rise { from { opacity: 0; transform: translateY(24px) scale(.97); } }
+  .card h2 { font-family: var(--title); font-size: 26px; margin: 0 0 8px; }
+  .legend { position: absolute; left: 170px; top: 30px; display: flex; gap: 24px; font-size: 16px; opacity: .85; }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 6px; background: var(--c); }
+
+  .row { position: relative; padding: 8px 10px; border-radius: 16px; margin-bottom: 14px; transition: background .3s; }
+  .row.chosen { background: #FF7A5924; }
+  .row .name { font-size: 20px; }
+  .row .tag { position: absolute; right: 10px; top: 4px; font-family: var(--title); font-size: 18px; color: var(--c); animation: wiggle 1.6s ease-in-out infinite; }
+  @keyframes wiggle { 50% { transform: rotate(-6deg) scale(1.08); } }
+  .bar { display: inline-block; width: 264px; height: 12px; border-radius: 6px; background: #2B234014; margin: 10px 12px 0 0; overflow: hidden; vertical-align: middle; }
+  .bar i { display: block; height: 100%; border-radius: 6px; background: var(--c); width: 0; transition: width 1.2s cubic-bezier(.2, 1.3, .4, 1); }
+  .score { font-size: 18px; vertical-align: middle; }
+  .chips { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 13px; padding: 3px 9px; border-radius: 11px; background: color-mix(in srgb, var(--c) 24%, transparent); transition: transform .2s; }
+  .chip:hover { transform: scale(1.12) rotate(2deg); }
+  .bubble {
+    position: absolute; left: 20px; right: 20px; bottom: 34px; height: 84px; border-radius: 28px; background: white;
+    display: grid; place-items: center; font-family: var(--title); font-size: 21px; color: var(--grape); animation: bob 4s ease-in-out infinite;
+  }
+  .bubble::after { content: ""; position: absolute; left: 40px; bottom: -24px; border: 14px solid transparent; border-top: 18px solid white; border-left: 22px solid white; }
+
+  .graph { position: absolute; left: 20px; right: 20px; top: 68px; bottom: 18px; border-radius: 16px; background: #FFEEE0; overflow: hidden; }
+  .graph svg { position: absolute; inset: 0; }
+  .wire { fill: none; stroke-width: 4; stroke-linecap: round; }
+  .flow { fill: none; stroke: white; stroke-width: 3; stroke-dasharray: 2 18; stroke-linecap: round; animation: flow 1s linear infinite; }
+  @keyframes flow { to { stroke-dashoffset: -20; } }
+  .node {
+    position: absolute; width: 150px; height: 62px; background: white; border-radius: 14px; border: 2px solid #2B23401F;
+    box-shadow: 0 4px 12px #0000002A; font-size: 14px; cursor: grab; transition: transform .2s, box-shadow .2s;
+  }
+  .node:hover { transform: translateY(-3px) rotate(-1deg); box-shadow: 0 10px 20px #00000030; }
+  .node .head { height: 28px; border-radius: 12px 12px 0 0; background: color-mix(in srgb, var(--c) 25%, white); display: grid; place-items: center; }
+  .node .pins { display: flex; justify-content: space-between; padding: 4px 14px; font-size: 13px; opacity: .6; }
+  .node::before, .node::after { content: ""; position: absolute; top: 36px; width: 14px; height: 14px; border-radius: 50%; background: var(--c); border: 2px solid white; }
+  .node::before { left: -8px; } .node::after { right: -8px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="confetti" id="confetti"></div>
+  <header>
+    <div class="face"><i></i><i></i><b></b></div>
+    <div><h1>Ember's corner</h1><div class="sub">feeling sleepy &nbsp;·&nbsp; level 7</div></div>
+    <nav id="tabs"><button>Settings</button><button class="on">Mind</button><button>Balance</button></nav>
+    <svg class="sunbadge" viewBox="0 0 60 60"><g stroke="#FFC542" stroke-width="4" stroke-linecap="round" id="rays"></g><circle cx="30" cy="30" r="15" fill="#FFC542"/></svg>
+  </header>
+
+  <section class="card" style="left:30px; top:120px; width:640px; height:330px">
+    <h2>Drives</h2>
+    <div class="legend"><span style="--c:var(--coral)">energy</span><span style="--c:var(--mint)">curiosity</span><span style="--c:var(--grape)">social</span></div>
+    <canvas id="chart" width="600" height="238" style="position:absolute; left:20px; top:72px"></canvas>
+  </section>
+
+  <section class="card" style="left:30px; top:470px; width:640px; height:260px; animation-delay:.1s">
+    <h2>Mind graph</h2>
+    <div class="graph">
+      <svg viewBox="0 0 600 172">
+        <path class="wire" stroke="#FF9F59" d="M 180 107 C 230 107 200 67 250 67"/><path class="flow" d="M 180 107 C 230 107 200 67 250 67"/>
+        <path class="wire" stroke="#9AD27A" d="M 400 67 C 450 67 420 117 470 117"/><path class="flow" d="M 400 67 C 450 67 420 117 470 117"/>
+      </svg>
+      <div class="node" style="left:30px; top:64px; --c:var(--coral)"><div class="head">Drive: energy</div><div class="pins"><span>in</span><span>out</span></div></div>
+      <div class="node" style="left:250px; top:24px; --c:var(--sun)"><div class="head">Curve: tired</div><div class="pins"><span>in</span><span>out</span></div></div>
+      <div class="node" style="left:420px; top:74px; --c:var(--mint)"><div class="head">Action: nap</div><div class="pins"><span>in</span><span>out</span></div></div>
+    </div>
+  </section>
+
+  <section class="card" style="left:690px; top:120px; width:480px; height:610px; animation-delay:.2s" id="scores">
+    <h2>What it wants to do</h2>
+    <div class="bubble">"five more minutes in the sun..."</div>
+  </section>
+</div>
+<script>
+  const C = { coral: "#FF7A59", mint: "#3DD6B5", grape: "#8B5CF6", sun: "#FFC542" };
+  // Confetti and sun rays.
+  const conf = document.getElementById("confetti");
+  for (let k = 0; k < 26; k++) {
+    const a = k * 2.4, s = document.createElement("span"), r = 4 + (k % 5) * 2;
+    Object.assign(s.style, { left: (600 + 576 * Math.sin(a * .7) - r) + "px", top: (380 + 365 * Math.cos(a * 1.3) - r) + "px",
+      width: 2 * r + "px", height: 2 * r + "px", background: Object.values(C)[k % 4], animationDelay: (k * .37) + "s" });
+    conf.appendChild(s);
+  }
+  const rays = document.getElementById("rays");
+  for (let k = 0; k < 12; k++) {
+    const a = k * Math.PI / 6;
+    rays.innerHTML += `<line x1="${30 + 20 * Math.cos(a)}" y1="${30 + 20 * Math.sin(a)}" x2="${30 + 28 * Math.cos(a)}" y2="${30 + 28 * Math.sin(a)}"/>`;
+  }
+  // Tabs.
+  document.querySelectorAll("#tabs button").forEach(b => b.onclick = () => {
+    document.querySelectorAll("#tabs button").forEach(x => x.classList.remove("on")); b.classList.add("on");
+  });
+  // Score rows with reason chips; bars grow in.
+  const rows = [
+    ["Nap in the sun", .86, C.coral, ["tired +0.41", "sunny spot", "night"], true],
+    ["Chase the cursor", .64, C.mint, ["cursor near", "curious +0.22"]],
+    ["Groom", .38, C.grape, ["calm"]],
+    ["Wander", .21, C.sun, ["bored", "-0.10 just walked"]],
+  ];
+  const box = document.getElementById("scores"), bubble = box.querySelector(".bubble");
+  for (const [name, score, c, chips, chosen] of rows) {
+    const el = document.createElement("div");
+    el.className = "row" + (chosen ? " chosen" : ""); el.style.setProperty("--c", c);
+    el.innerHTML = `<div class="name">${name}</div>${chosen ? '<span class="tag">chosen!</span>' : ""}
+      <span class="bar"><i></i></span><span class="score">${score.toFixed(2)}</span>
+      <div class="chips">${chips.map(t => `<span class="chip">${t}</span>`).join("")}</div>`;
+    box.insertBefore(el, bubble);
+    requestAnimationFrame(() => setTimeout(() => el.querySelector(".bar i").style.width = score * 100 + "%", 300));
+  }
+  // The live drive chart: scrolls one step every 100 ms, with smooth curves and soft fills.
+  const ctx = document.getElementById("chart").getContext("2d"), W = 600, H = 238;
+  const drive = (i, x) => { const t = x * .12;
+    return [.55 + .30 * Math.sin(t * .9) - .08 * Math.cos(t * 2.3), .45 + .25 * Math.sin(t * 1.4 + 1) + .06 * Math.sin(t * 3.1),
+            .35 + .20 * Math.cos(t * .6 + 2) + .05 * Math.sin(t * 4)][i]; };
+  let offset = 0;
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.strokeStyle = "#2B234014"; ctx.lineWidth = 1;
+    for (let k = 0; k < 4; k++) { ctx.beginPath(); ctx.moveTo(0, k * H / 3 + .5); ctx.lineTo(W, k * H / 3 + .5); ctx.stroke(); }
+    [[2, C.grape], [1, C.mint], [0, C.coral]].forEach(([i, c]) => {
+      const pts = Array.from({ length: 60 }, (_, k) => [W * k / 59, H - H * drive(i, k + offset)]);
+      ctx.beginPath(); ctx.moveTo(...pts[0]);
+      for (let k = 1; k < pts.length; k++) { const [x0, y0] = pts[k - 1], [x1, y1] = pts[k]; ctx.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2); }
+      ctx.lineTo(W, pts[59][1]);
+      const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, c + "48"); g.addColorStop(1, c + "00");
+      ctx.save(); ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath(); ctx.fillStyle = g; ctx.fill(); ctx.restore();
+      ctx.beginPath(); ctx.moveTo(...pts[0]);
+      for (let k = 1; k < pts.length; k++) { const [x0, y0] = pts[k - 1], [x1, y1] = pts[k]; ctx.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2); }
+      ctx.lineTo(W, pts[59][1]);
+      ctx.strokeStyle = c; ctx.lineWidth = 4; ctx.lineCap = "round"; ctx.lineJoin = "round"; ctx.stroke();
+      ctx.beginPath(); ctx.arc(W - 9, pts[59][1], 7, 0, 7); ctx.fillStyle = "white"; ctx.fill(); ctx.stroke();
+    });
+  }
+  draw(); setInterval(() => { offset += .25; draw(); }, 100);
+  // Nodes can be dragged; the wires don't follow in this mockup.
+  document.querySelectorAll(".node").forEach(n => n.onpointerdown = e => {
+    const sx = e.clientX - n.offsetLeft, sy = e.clientY - n.offsetTop; n.setPointerCapture(e.pointerId);
+    n.onpointermove = m => { n.style.left = m.clientX - sx + "px"; n.style.top = m.clientY - sy + "px"; };
+    n.onpointerup = () => n.onpointermove = null;
+  });
+</script>
+</body>
+</html>

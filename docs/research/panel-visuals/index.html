@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pet panel - visual options side by side</title>
+<style>
+  body { font: 15px/1.5 "Segoe UI", system-ui, sans-serif; margin: 24px; background: #F4F1F8; color: #2B2340; }
+  h1 { margin: 0 0 4px; } .lead { margin: 0 0 20px; max-width: 980px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(600px, 1fr)); gap: 22px; }
+  figure { margin: 0; background: white; border-radius: 14px; padding: 14px; box-shadow: 0 4px 14px #0000001A; }
+  figure img, figure iframe { width: 100%; aspect-ratio: 1200 / 760; border: 0; border-radius: 8px; display: block; background: #eee; }
+  .frame { position: relative; width: 100%; aspect-ratio: 1200 / 760; overflow: hidden; border-radius: 8px; }
+  .frame iframe { position: absolute; left: 0; top: 0; width: 1200px; height: 760px; transform-origin: 0 0; }
+  figcaption h2 { font-size: 18px; margin: 12px 0 4px; }
+  figcaption ul { margin: 4px 0 0; padding-left: 20px; }
+  code { background: #EEE8F6; padding: 0 4px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>Pet panel: the same screen in four UI technologies</h1>
+<p class="lead">Same layout, palette and fonts (Bahnschrift and Segoe Print, which ship with Windows) in each. Every picture was
+rendered offscreen, with no window and no screenshot. The HTML one is live: it animates and you can drag its nodes. Details and
+costs are in <code>../dev-panel.md</code>, under "Visual options".</p>
+<div class="grid">
+  <figure>
+    <div class="frame"><iframe id="live" src="pet-panel.html" title="HTML mockup"></iframe></div>
+    <figcaption><h2>HTML / CSS / Canvas (as in a WebView2 window)</h2><ul>
+      <li>Live: the chart scrolls, the face blinks, the wires flow, the cards spring in, and the nodes drag.</li>
+      <li>Easiest place to be creative: CSS animations and transitions, gradients, SVG, Canvas and WebGL.</li>
+      <li>Costs about 87 MB of RAM while open (measured), and it means writing HTML and JS.</li></ul></figcaption>
+  </figure>
+  <figure>
+    <img src="egui.png" alt="egui mockup">
+    <figcaption><h2>egui 0.36 (custom painted) + egui-snarl</h2><ul>
+      <li>Rendered with <code>egui_kittest</code> over wgpu. The chart, chips, face and gradient are all hand-painted shapes.</li>
+      <li>The node graph is a real, working egui-snarl widget, restyled.</li>
+      <li>Animation means writing per-frame code: there are no CSS-like transitions, and <code>animate_value</code> is the main helper.</li></ul></figcaption>
+  </figure>
+  <figure>
+    <img src="slint.png" alt="Slint mockup">
+    <figcaption><h2>Slint 1.18 (declarative .slint markup)</h2><ul>
+      <li>Rendered with Slint's software renderer into a buffer. Layout, shadows and chips come from markup, and Path draws the curves.</li>
+      <li>The software renderer drew the path gradients flat, and it ignored <code>transform-rotation</code> on rectangles. Slint's GPU renderers support more.</li>
+      <li>Has <code>animate</code>, <code>states</code> and transitions, plus live preview in VS Code and a Figma plugin. There's no ready-made node graph.</li></ul></figcaption>
+  </figure>
+  <figure>
+    <img src="bevy_ui.png" alt="bevy_ui mockup">
+    <figcaption><h2>bevy_ui 0.20 (separate Bevy program)</h2><ul>
+      <li>Rendered into an image the way the repo's windowless render tests do it. It uses gradients, box shadows and rounded nodes.</li>
+      <li>bevy_ui can't draw paths. The lines here are chains of tiny round nodes, and real curves would need a <code>UiMaterial</code> shader.</li>
+      <li>Shaders give it the most game-like ceiling, but every widget is yours to build. There's no node graph.</li></ul></figcaption>
+  </figure>
+</div>
+<script>
+  // Scale the live 1200x760 mockup down to fit its card.
+  const fit = () => { const f = document.getElementById("live"); f.style.transform = `scale(${f.parentElement.clientWidth / 1200})`; };
+  addEventListener("resize", fit); fit();
+</script>
+</body>
+</html>
