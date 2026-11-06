@@ -16,15 +16,16 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use bevy::ecs::query::QuerySingleError;
 use bevy::prelude::*;
 use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use pet_content::{LoadedPack, PackError};
 use pet_core::settle::Settle;
 use pet_platform::{FolderWatch, Wake};
-use pet_sim::CurrentPack;
+use pet_sim::{CurrentPack, Pet, ShownFrame};
 
 use super::log_file;
-use super::pack_assets::PackAssets;
+use super::pack_assets::{PackAssets, form_and_action};
 
 /// How long a Pack's files must be left alone before it's read again. An editor's save is a burst of changes a few
 /// milliseconds apart, and a quarter of a second is well past that but still feels immediate.
@@ -186,20 +187,36 @@ pub(super) fn apply_edits(world: &mut World) {
 
 /// Swaps in a valid Pack. Its images are made here, its Definition replaces the simulation's, and the simulation moves
 /// each Actor onto it, all in this one system. The Pet's `ShownFrame` then counts as changed, so the renderer, the
-/// shadow and the Emote draw it from the new Pack, and the Hit target is published again.
+/// shadow and the Emote draw it from the new Pack, and the Hit target is published again. The log then says which Form
+/// the Pet is in, since an edit can move it to another one.
 fn apply(world: &mut World, folder: &Path, pack: LoadedPack) {
-    info!(
-        target: log_file::RECORD,
-        "Reloaded the Pack \"{}\" from {}",
-        pack.definition.name,
-        folder.display()
-    );
     let assets = world.resource_scope(|world, mut images: Mut<Assets<Image>>| {
         let mut materials = world.resource_mut::<Assets<ColorMaterial>>();
         PackAssets::new(&pack, &mut images, &mut materials)
     });
     world.insert_resource(assets);
-    pet_sim::replace_pack(world, Arc::new(pack.definition));
+    let definition = Arc::new(pack.definition);
+    pet_sim::replace_pack(world, definition.clone());
+    let form = match world
+        .query_filtered::<&ShownFrame, With<Pet>>()
+        .single(world)
+    {
+        Ok(shown) => Some(shown.form),
+        // With no Pet yet, because the Pack was broken at startup, it appears in the starting Form.
+        Err(QuerySingleError::NoEntities(_)) => Some(definition.starting_form),
+        // There's one Pet by design (PRD §12), so this can't happen. If it ever does, the line names no Form rather
+        // than a wrong one.
+        Err(QuerySingleError::MultipleEntities(_)) => None,
+    };
+    let pet = form.map_or_else(String::new, |form| {
+        format!("; the Pet is now in {}", form_and_action(&definition, form))
+    });
+    info!(
+        target: log_file::RECORD,
+        "Reloaded the Pack \"{}\" from {}{pet}",
+        definition.name,
+        folder.display()
+    );
 }
 
 /// Logs every error of an invalid edit, which changes nothing.
@@ -231,9 +248,7 @@ mod tests {
     use pet_core::geometry::{Point, Rect};
     use pet_core::hit_mask::Placement;
     use pet_core::pack::{AnimationId, EmoteId, FormId};
-    use pet_sim::{
-        AnimationClock, EmoteRequest, PackReloaded, Pet, ShownEmote, ShownFrame, SimPlugin,
-    };
+    use pet_sim::{AnimationClock, EmoteRequest, PackReloaded, ShownEmote, SimPlugin};
 
     use super::*;
     use crate::engine::PetRenderPlugin;
@@ -242,8 +257,8 @@ mod tests {
     use crate::engine::renderer::publish_hit_target;
     use crate::engine::shadow::ShadowOf;
     use crate::engine::test_support::{
-        CapturedLog, RecordingPlatform, TestPack, pack_from, placeholder_folder,
-        placeholder_manifest,
+        CapturedLog, RecordingPlatform, TestPack, assert_pet_plays, egg_and_hatchling, pack_from,
+        placeholder_folder, placeholder_manifest,
     };
     use crate::pack::StartingPack;
 
@@ -776,10 +791,66 @@ durations_ms = [250]
         assert_eq!(current_name(&app), "Edited dragon");
     }
 
+    /// Captures what the next update logs. The edit is applied on this thread, where the log is captured.
+    fn logged_during_update(app: &mut App) -> String {
+        app.edit_schedule(PreUpdate, |schedule| {
+            schedule.set_executor(SingleThreadedExecutor::new());
+        });
+        let log = CapturedLog::default();
+        log.during(|| app.update());
+        log.text()
+    }
+
     #[test]
-    fn given_a_pet_with_a_shadow_in_a_one_form_pack_when_an_edit_adds_forms_before_its_own_then_it_and_its_shadow_are_drawn_from_the_new_pack()
+    fn given_an_egg_when_an_edit_makes_the_pack_start_as_a_hatchling_then_the_reload_line_says_the_pet_is_a_hatchling_playing_its_default_action()
      {
-        // Given: one Form with a shadow
+        // Given
+        let (mut app, folder) = running(pack_from("say-form", &egg_and_hatchling("egg")));
+        let (_, edited) = pack_from("say-form-edited", &egg_and_hatchling("hatchling"));
+
+        // When
+        edit(&mut app, &folder, Ok(edited));
+        let logged = logged_during_update(&mut app);
+
+        // Then
+        let line = format!(
+            "Reloaded the Pack \"Two Forms\" from {}; the Pet is now in its \"hatchling\" Form, playing \"nap\"",
+            folder.0.display()
+        );
+        assert!(logged.contains(&line), "{logged}");
+        assert!(logged.contains(log_file::RECORD), "{logged}");
+        assert_pet_plays(&mut app, "hatchling", "nap");
+    }
+
+    #[test]
+    fn given_no_pet_because_the_pack_was_broken_at_startup_when_a_valid_edit_arrives_then_the_reload_line_names_the_starting_form()
+     {
+        // Given
+        let (folder, pack) = pack_from("say-form-fixed", &egg_and_hatchling("egg"));
+        let mut app = engine(StartingPack::Broken {
+            folder: folder.0.clone(),
+            errors: vec![PackError::new("manifest.toml", "", "is missing")],
+        });
+        app.update();
+
+        // When
+        edit(&mut app, &folder, Ok(pack));
+        let logged = logged_during_update(&mut app);
+
+        app.update();
+
+        // Then: it has appeared by the update after
+        assert!(
+            logged.contains("; the Pet is now in its \"egg\" Form, playing \"wobble\""),
+            "{logged}"
+        );
+        assert_pet_plays(&mut app, "egg", "wobble");
+    }
+
+    #[test]
+    fn given_a_grown_pet_with_a_shadow_when_an_edit_adds_a_form_before_its_own_then_it_keeps_its_form_by_name_drawn_with_its_shadow_from_the_new_pack()
+     {
+        // Given: Forms with shadows, starting as an "egg"
         let shadowed = |name: &str| {
             format!(
                 r##"
@@ -801,13 +872,19 @@ durations_ms = [250, 250]
         };
         let manifest = |forms: &[&str]| {
             let forms: String = forms.iter().map(|name| shadowed(name)).collect();
-            format!(
-                "format_version = 1\nname = \"Growing\"\nstarting_form = \"hatchling\"\n{forms}"
-            )
+            format!("format_version = 1\nname = \"Growing\"\nstarting_form = \"egg\"\n{forms}")
         };
-        let (mut app, folder) = running(pack_from("grow", &manifest(&["hatchling"])));
+        let (mut app, folder) = running(pack_from("grow", &manifest(&["egg", "hatchling"])));
+        // A "hatchling", the second Form and not the starting one, as a Pet that has grown will be in roadmap item 4
+        let pet = the_pet(&mut app);
+        let (grown_up, idle) = (FormId(1), AnimationId(0));
+        let mut clock = app.world_mut().get_mut::<AnimationClock>(pet).unwrap();
+        (clock.form, clock.animation) = (grown_up, idle);
+        let mut shown = app.world_mut().get_mut::<ShownFrame>(pet).unwrap();
+        (shown.form, shown.animation) = (grown_up, idle);
+        app.update();
 
-        // When: two Forms come before "hatchling", by name and in the file, so it's numbered past the old Pack's end
+        // When: a Form comes before both, by name and in the file, so "hatchling" is numbered past the old Pack's end
         let (_, grown) = pack_from("grow-grown", &manifest(&["adult", "egg", "hatchling"]));
         let hatchling = grown
             .definition
@@ -818,9 +895,13 @@ durations_ms = [250, 250]
             .unwrap();
         assert_eq!(hatchling, FormId(2));
         edit(&mut app, &folder, Ok(grown));
-        app.update();
+        let logged = logged_during_update(&mut app);
 
-        // Then
+        // Then: the reload line names the Form the Pet kept, not the starting one
+        assert!(
+            logged.contains("; the Pet is now in its \"hatchling\" Form, playing \"idle\""),
+            "{logged}"
+        );
         let pet = the_pet(&mut app);
         assert_eq!(app.world().get::<ShownFrame>(pet).unwrap().form, hatchling);
         let drawn = app

@@ -5,10 +5,11 @@
 mod fixture;
 mod harness;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use bevy::prelude::With;
 use pet_app::PackEdited;
+use pet_content::LoadedPack;
 use pet_core::geometry::Point;
 use pet_core::pack::EmoteId;
 use pet_core::placement::Facing;
@@ -294,6 +295,21 @@ fn given_a_crouched_pet_whose_art_reaches_above_its_body_when_it_shows_an_emote_
     assert_drawn(&got, &want);
 }
 
+/// Hands the engine an edited Pack, as the watcher does once a save has settled.
+fn reload(offscreen: &mut Offscreen, folder: PathBuf, edited: LoadedPack) {
+    offscreen.app.world_mut().write_message(PackEdited {
+        folder,
+        loaded: Ok(edited),
+    });
+}
+
+/// `art` drawn at 2x with its top-left at (`left`, `top`) in a clear 40 x 24 work area.
+fn drawn_at(art: &Picture, left: u32, top: u32) -> Picture {
+    let mut picture = Picture::clear(40, 24);
+    picture.draw(art, left, top, SCALE, false);
+    picture
+}
+
 #[test]
 fn given_a_drawn_pet_when_its_pack_is_edited_with_new_art_then_every_pixel_is_the_new_art() {
     // Given: on its first Frame at home, with its top-left at (18, 16). The edit swaps the art's two colours and
@@ -304,10 +320,7 @@ fn given_a_drawn_pet_when_its_pack_is_edited_with_new_art_then_every_pixel_is_th
     let before = offscreen.capture();
 
     // When
-    offscreen.app.world_mut().write_message(PackEdited {
-        folder,
-        loaded: Ok(edited),
-    });
+    reload(&mut offscreen, folder, edited);
     let after = offscreen.capture();
 
     // Then
@@ -317,4 +330,53 @@ fn given_a_drawn_pet_when_its_pack_is_edited_with_new_art_then_every_pixel_is_th
     want_after.draw(&fixture::recoloured_frame(0), 18, 16, SCALE, false);
     assert_drawn(&before, &want_before);
     assert_drawn(&after, &want_after);
+}
+
+#[test]
+fn given_a_drawn_pet_when_an_edit_changes_only_its_forms_default_action_then_that_actions_animation_is_drawn_with_its_own_timing()
+ {
+    // Given: "idle", 100 ms then 200 ms, is the default Action, and "nap", 50 ms then 150 ms, has art of its own. At
+    // home the top-left is (18, 16).
+    let (folder, pack) = fixture::load_with_nap("default-action");
+    let (_, edited) = fixture::load_napping("default-action-edited");
+    let mut offscreen = Offscreen::start(folder.clone(), pack, 40, 24);
+    let before = offscreen.capture();
+
+    // When: the clock starts again at the reload. 1 tick later is 33 ms, still nap's first Frame. 2 are 67 ms, into its
+    // second, where idle would still be on its first. 6 are exactly 200 ms, the start of its second loop, where idle
+    // would be on its second Frame.
+    reload(&mut offscreen, folder, edited);
+    let on_reloading = offscreen.capture();
+    offscreen.tick(1);
+    let at_33_ms = offscreen.capture();
+    offscreen.tick(1);
+    let at_67_ms = offscreen.capture();
+    offscreen.tick(4);
+    let at_200_ms = offscreen.capture();
+
+    // Then
+    assert_drawn(&before, &drawn_at(&fixture::frame(0), 18, 16));
+    assert_drawn(&on_reloading, &drawn_at(&fixture::nap_frame(0), 18, 16));
+    assert_drawn(&at_33_ms, &drawn_at(&fixture::nap_frame(0), 18, 16));
+    assert_drawn(&at_67_ms, &drawn_at(&fixture::nap_frame(1), 18, 16));
+    assert_drawn(&at_200_ms, &drawn_at(&fixture::nap_frame(0), 18, 16));
+}
+
+#[test]
+fn given_a_pet_still_in_its_starting_form_when_an_edit_changes_the_starting_form_then_the_new_starting_forms_art_is_drawn()
+ {
+    // Given: an "egg", 4 x 3, with its Anchor in the middle of its bottom edge. At home, (20, 24), its top-left is
+    // (20 - 2 x 2, 24 - 3 x 2).
+    let (folder, pack) = fixture::load_as_egg("starting-form");
+    let (_, edited) = fixture::load_with_egg("starting-form-edited");
+    let mut offscreen = Offscreen::start(folder.clone(), pack, 40, 24);
+    let before = offscreen.capture();
+
+    // When: the edit changes only `starting_form`, to "hatchling"
+    reload(&mut offscreen, folder, edited);
+    let after = offscreen.capture();
+
+    // Then: a "hatchling" on the first Frame of its default Action, with its top-left at (18, 16)
+    assert_drawn(&before, &drawn_at(&fixture::egg(), 16, 18));
+    assert_drawn(&after, &drawn_at(&fixture::frame(0), 18, 16));
 }

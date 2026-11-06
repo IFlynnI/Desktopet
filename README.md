@@ -16,8 +16,10 @@ cargo run -p pet-app
 To use another folder of Packs, set `DESKTOP_PET_PACKS` to it. With no usable Pack there's no Pet, the reasons are in
 `%LOCALAPPDATA%\DesktopPet\desktop-pet.log`, and the tray icon still works so you can quit.
 
-Edit the Pack while the app runs, and the Pet changes about a quarter of a second after each save. An edit with
-mistakes changes nothing, and the log lists each one.
+Edit the Pack while the app runs, and the Pet changes about a quarter of a second after each save. It starts its
+Form's default Action again from the first Frame. A Pet in its starting Form moves to the new one if you change
+`starting_form`; in any other Form it keeps that Form while the Pack still has it. The log says which Form the Pet is
+in and which Action it's playing. An edit with mistakes changes nothing, and the log lists each one.
 
 To check a Pack the way the app does, listing every error:
 

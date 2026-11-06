@@ -452,6 +452,7 @@ fights at your side, and eventually talks with you — while never getting in yo
 | Half-transparent pixels blend in sRGB, as an image editor shows them (2026-11-04) | Pixel art should look as it was drawn. Opaque pixels are the same either way. |
 | Animation clocks count whole ticks, and every Frame lasts at least one tick, 34 ms (2026-11-04) | A Frame then lasts exactly as long as the Pack says and is never skipped. `pet-pack validate` rejects shorter Frames. |
 | Emotes are asked for with one ordered message, `EmoteRequest` (2026-11-04) | A hide and a show in the same tick then mean what they were sent to mean. The target keeps an Actor on it, so enemies can show Emotes in item 4. |
+| On a Pack reload, a Pet still in its starting Form follows a changed `starting_form`; any other Form is kept by name (2026-11-06) | Otherwise an author who changes `starting_form` sees nothing. Only the Form the Pet is in now counts, so two edits can still move a grown Pet back; item 4's Progress must close that. |
 
 ## 13. References
 

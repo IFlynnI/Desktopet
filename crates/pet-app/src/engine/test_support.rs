@@ -10,7 +10,9 @@ use bevy::log::tracing_subscriber::fmt;
 use bevy::prelude::*;
 use pet_content::LoadedPack;
 use pet_core::hit_mask::{HitMask, Placement};
+use pet_core::pack::FormId;
 use pet_platform::HitTarget;
+use pet_sim::{AnimationClock, CurrentPack, Pet};
 
 use super::renderer::HitTest;
 
@@ -99,4 +101,72 @@ pub fn pack_from(test: &str, manifest: &str) -> (TestPack, LoadedPack) {
     fs::write(folder.join("manifest.toml"), manifest).unwrap();
     let pack = pet_content::load(&folder).unwrap_or_else(|errors| panic!("{errors:?}"));
     (TestPack(folder), pack)
+}
+
+/// A Pack with an "egg" and a "hatchling", starting as `starting_form`, each Animation the placeholder's idle strip.
+/// Neither Form's default Action is its first or is called "idle". The egg's plays its second Animation and the
+/// hatchling's its first, so a line or a clock naming the wrong one shows up.
+pub fn egg_and_hatchling(starting_form: &str) -> String {
+    let form =
+        |name: &str, (default, playing): (&str, &str), (other, other_playing): (&str, &str)| {
+            format!(
+                r#"
+[forms.{name}]
+cell = {{ width = 24, height = 18 }}
+anchor = {{ x = 12, y = 18 }}
+body = {{ x = -9, y = -15, width = 18, height = 15 }}
+default_action = "{default}"
+
+[forms.{name}.actions.{default}]
+animation = "{playing}"
+
+[forms.{name}.actions.{other}]
+animation = "{other_playing}"
+
+[forms.{name}.animations.{playing}]
+sheet = "hatchling/idle.png"
+durations_ms = [250, 250]
+
+[forms.{name}.animations.{other_playing}]
+sheet = "hatchling/idle.png"
+durations_ms = [250, 250]
+"#
+            )
+        };
+    format!(
+        "format_version = 1
+name = \"Two Forms\"
+starting_form = \"{starting_form}\"
+{}{}",
+        form("egg", ("wobble", "wobble"), ("rest", "idle")),
+        form("hatchling", ("nap", "doze"), ("look", "look_around"))
+    )
+}
+
+/// Asserts that the Pet's clock is on the Animation of the Action `action` of its Form `form`, both by name, from its
+/// first Frame.
+pub fn assert_pet_plays(app: &mut App, form: &str, action: &str) {
+    let definition = app.world().resource::<CurrentPack>().0.clone();
+    let form_id = FormId(
+        definition
+            .forms
+            .iter()
+            .position(|candidate| candidate.name == form)
+            .expect("the Pack has the Form"),
+    );
+    let actions = &definition.form(form_id).actions;
+    let animation = actions
+        .iter()
+        .find(|candidate| candidate.name == action)
+        .expect("the Form has the Action")
+        .animation;
+    let world = app.world_mut();
+    let clock = world
+        .query_filtered::<&AnimationClock, With<Pet>>()
+        .single(world)
+        .expect("one Pet");
+    assert_eq!(
+        (clock.form, clock.animation, clock.played_ticks),
+        (form_id, animation, 0)
+    );
 }

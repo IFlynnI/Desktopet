@@ -49,11 +49,13 @@ pub(crate) fn spawn_pet(mut commands: Commands, pack: Res<CurrentPack>, work_are
 /// Swaps in an edited Pack's Definition. It all happens here, at once, so nothing can read the new Pack with the old
 /// one's numbers: call it from an exclusive system that runs before the ticks and the renderer.
 ///
-/// Each Actor stays where it is and faces the same way. It keeps its Form if the new Pack has one of that name, since
-/// numbers come from a Pack's order and can change with any edit, or else takes the new starting Form. Its clock
-/// starts again on that Form's default Action, showing its first Frame before any time passes, as a Pet that has just
-/// appeared does. Its Emote ends: the Emote may have changed or gone, and whoever showed it can show it again. Emote
-/// requests not yet read go too, because they name Emotes by the old Pack's numbers.
+/// Each Actor stays where it is and faces the same way. The Pet, while it's in the starting Form, takes the new Pack's
+/// starting Form, so an author who changes `starting_form` sees it. Any other Actor keeps its Form if the new Pack has
+/// one of that name, since numbers come from a Pack's order and can change with any edit, or else takes the new
+/// starting Form. Its clock starts again on that Form's default Action, showing its first Frame before any time
+/// passes, as a Pet that has just appeared does. Its Emote ends: the Emote may have changed or gone, and whoever
+/// showed it can show it again. Emote requests not yet read go too, because they name Emotes by the old Pack's
+/// numbers.
 ///
 /// Every Actor's `ShownFrame` and `ShownEmote` count as changed afterwards, even when the numbers are the same,
 /// because the Frame they name is the new Pack's. So whatever draws them, or hit-tests them, does it again.
@@ -70,9 +72,14 @@ pub fn replace_pack(world: &mut World, definition: Arc<PackDefinition>) {
                 Option<&mut AnimationClock>,
                 Option<&mut EmoteClock>,
                 Option<&mut ShownEmote>,
+                Has<Pet>,
             )>();
-            for (mut shown, clock, emote_clock, shown_emote) in actors.iter_mut(world) {
-                let form = same_form(&old, &definition, shown.form);
+            for (mut shown, clock, emote_clock, shown_emote, is_pet) in actors.iter_mut(world) {
+                let form = if is_pet {
+                    pet_form_after_edit(&old, &definition, shown.form)
+                } else {
+                    same_form(&old, &definition, shown.form)
+                };
                 let animation = definition.form(form).default_animation();
                 *shown = ShownFrame {
                     form,
@@ -102,6 +109,22 @@ pub fn replace_pack(world: &mut World, definition: Arc<PackDefinition>) {
         requests.clear();
     }
     world.write_message(PackReloaded);
+}
+
+/// The Form of `new` the Pet in `form` of `old` takes. In the starting Form, it takes the new starting Form: the same
+/// Form, if only its number changed, or the one the author now starts with. In any other Form it keeps it by name, so
+/// an edit that only changes `starting_form` doesn't throw a grown Pet back. The starting Form is the Pet's alone, so
+/// other Actors are always kept by name.
+///
+/// The rule has no memory: it looks only at the Form the Pet is in now. So two edits can still move a grown Pet: one
+/// that makes its current Form the starting one, then one that changes `starting_form` back. Telling a Pet that has
+/// grown from one that never left its starting Form needs state of its own, its Progress, which roadmap item 4 brings.
+fn pet_form_after_edit(old: &PackDefinition, new: &PackDefinition, form: FormId) -> FormId {
+    if form == old.starting_form {
+        new.starting_form
+    } else {
+        same_form(old, new, form)
+    }
 }
 
 /// The Form of `new` with the name `form` has in `old`, or else `new`'s starting Form.

@@ -1,7 +1,8 @@
 //! A small Pack for the render tests, written from ASCII art into a folder of its own and loaded the way the app loads
 //! one. Its Anchor, (1, 4) in a 6 x 4 cell, is off-centre, so lining the Anchor up shows in the pixels. Its art isn't
 //! symmetric, so mirroring shows too. It may have a shadow, 11 Pack pixels wide, in a half-transparent colour. It has
-//! two Emotes 5 x 3, an odd width: "note" loops and isn't symmetric, and "pop" plays once, 50 ms then 50 ms.
+//! two Emotes 5 x 3, an odd width: "note" loops and isn't symmetric, and "pop" plays once, 50 ms then 50 ms. It may
+//! have a second Action, "nap", with art and timing of its own, and a second Form, "egg", smaller and one colour.
 
 use std::fs::{self, File};
 use std::io::BufWriter;
@@ -52,6 +53,42 @@ const IDLE: [[&str; 4]; 2] = [
     ["......", "..aa..", ".abbaa", "aa..aa"],
 ];
 
+/// The nap Animation: 50 ms, then 150 ms. At every tick from the second to the sixth, it's on another Frame than idle
+/// would be.
+const NAP: [[&str; 4]; 2] = [
+    ["......", "......", ".cccc.", "cc..cc"],
+    ["......", "..cc..", "cbbbbc", "c....c"],
+];
+
+/// The "nap" Action and its Animation, for the `# nap` line.
+const NAP_SECTION: &str = r#"
+[forms.hatchling.actions.nap]
+animation = "nap"
+
+[forms.hatchling.animations.nap]
+sheet = "hatchling/nap.png"
+durations_ms = [50, 150]
+"#;
+
+/// The egg's one Frame, 4 x 3.
+const EGG: [&str; 3] = [".cc.", "cbbc", ".cc."];
+
+/// The "egg" Form, for the `# egg` line. Its Anchor is the middle of its bottom edge, and its Body is its cell.
+const EGG_SECTION: &str = r#"
+[forms.egg]
+cell = { width = 4, height = 3 }
+anchor = { x = 2, y = 3 }
+body = { x = -2, y = -3, width = 4, height = 3 }
+default_action = "idle"
+
+[forms.egg.actions.idle]
+animation = "idle"
+
+[forms.egg.animations.idle]
+sheet = "egg/idle.png"
+durations_ms = [500]
+"#;
+
 /// The shadow's width and colour, `#1b224560`: alpha 96, a little over a third.
 const SHADOW: &str = r##"shadow = { width = 11, colour = "#1b224560" }"##;
 
@@ -65,8 +102,9 @@ pub const SHADOW_DRAWN: [u8; 4] = [10, 13, 26, 96];
 /// The shadow's art: an ellipse 11 x 3, a quarter of its width rounded half up.
 const SHADOW_ART: [&str; 3] = [".#########.", "###########", ".#########."];
 
-/// The Pack's manifest. Its `# shadow` line makes way for the shadow, if it has one, and its `# idle body` line for
-/// a Body of the idle Action's own. The Form's Body's top is the top of the cell, 4 Pack pixels above the Anchor.
+/// The Pack's manifest. Its `# shadow` line makes way for the shadow, if it has one, its `# idle body` line for a
+/// Body of the idle Action's own, its `# nap` line for the "nap" Action and its `# egg` line for the "egg" Form. The
+/// Form's Body's top is the top of the cell, 4 Pack pixels above the Anchor.
 const MANIFEST: &str = r#"
 format_version = 1
 name = "Render test"
@@ -86,6 +124,8 @@ animation = "idle"
 [forms.hatchling.animations.idle]
 sheet = "hatchling/idle.png"
 durations_ms = [100, 200]
+# nap
+# egg
 
 [emotes.note]
 sheet = "emotes/note.png"
@@ -114,6 +154,16 @@ fn picture(rows: &[&str], colour: fn(char) -> [u8; 4]) -> Picture {
 /// One Frame of the idle Animation, as art pixels.
 pub fn frame(index: usize) -> Picture {
     picture(&IDLE[index], colour)
+}
+
+/// One Frame of the nap Animation, as art pixels.
+pub fn nap_frame(index: usize) -> Picture {
+    picture(&NAP[index], colour)
+}
+
+/// The egg's one Frame, as art pixels.
+pub fn egg() -> Picture {
+    picture(&EGG, colour)
 }
 
 /// One Frame of the idle Animation after an edit that swaps its two colours, `a` and `b`. Nothing else changes.
@@ -164,12 +214,12 @@ pub fn shadow() -> Picture {
 
 /// Writes the Pack, with no shadow, into a folder for `test`, loads it, and removes the folder again.
 pub fn load(test: &str) -> (PathBuf, LoadedPack) {
-    write_and_load(test, "", "", frame)
+    write_and_load(test, &[], frame)
 }
 
 /// The same Pack with its idle art in other colours, as `recoloured_frame` draws it.
 pub fn load_recoloured(test: &str) -> (PathBuf, LoadedPack) {
-    write_and_load(test, "", "", recoloured_frame)
+    write_and_load(test, &[], recoloured_frame)
 }
 
 /// The same Pack, its idle Action crouched into a Body of its own: 1 Pack pixel tall, from 1 left of the Anchor to 2
@@ -177,35 +227,78 @@ pub fn load_recoloured(test: &str) -> (PathBuf, LoadedPack) {
 pub fn load_crouched(test: &str) -> (PathBuf, LoadedPack) {
     write_and_load(
         test,
-        "",
-        "body = { x = -1, y = -1, width = 3, height = 1 }",
+        &[(
+            "# idle body",
+            "body = { x = -1, y = -1, width = 3, height = 1 }",
+        )],
         frame,
     )
 }
 
 /// The same Pack with its shadow.
 pub fn load_with_shadow(test: &str) -> (PathBuf, LoadedPack) {
-    write_and_load(test, SHADOW, "", frame)
+    write_and_load(test, &[("# shadow", SHADOW)], frame)
 }
 
+/// The same Pack with the "nap" Action too, and "idle" still its default.
+pub fn load_with_nap(test: &str) -> (PathBuf, LoadedPack) {
+    write_and_load(test, &[("# nap", NAP_SECTION)], frame)
+}
+
+/// The same Pack with the "nap" Action as its default: an edit of `load_with_nap`'s that changes only that.
+pub fn load_napping(test: &str) -> (PathBuf, LoadedPack) {
+    write_and_load(
+        test,
+        &[
+            ("# nap", NAP_SECTION),
+            (r#"default_action = "idle""#, r#"default_action = "nap""#),
+        ],
+        frame,
+    )
+}
+
+/// The same Pack with the "egg" Form too, which it starts as.
+pub fn load_as_egg(test: &str) -> (PathBuf, LoadedPack) {
+    write_and_load(
+        test,
+        &[
+            ("# egg", EGG_SECTION),
+            (r#"starting_form = "hatchling""#, r#"starting_form = "egg""#),
+        ],
+        frame,
+    )
+}
+
+/// The same Pack with the "egg" Form too, still starting as "hatchling": an edit of `load_as_egg`'s that changes only
+/// its `starting_form`.
+pub fn load_with_egg(test: &str) -> (PathBuf, LoadedPack) {
+    write_and_load(test, &[("# egg", EGG_SECTION)], frame)
+}
+
+/// Writes the Pack into a folder for `test`, each `edits` line in `MANIFEST` replaced, with `idle` as its idle art, and
+/// loads it. A `#` line left alone is a comment.
 fn write_and_load(
     test: &str,
-    shadow: &str,
-    idle_body: &str,
+    edits: &[(&str, &str)],
     idle: fn(usize) -> Picture,
 ) -> (PathBuf, LoadedPack) {
     let folder = env::temp_dir().join(format!("desktop-pet-render-{}-{test}", process::id()));
     let _ = fs::remove_dir_all(&folder);
-    fs::create_dir_all(folder.join("hatchling")).expect("make the Pack folder");
-    fs::create_dir_all(folder.join("emotes")).expect("make the Emotes folder");
-    fs::write(
-        folder.join("manifest.toml"),
-        MANIFEST
-            .replace("# shadow", shadow)
-            .replace("# idle body", idle_body),
-    )
-    .expect("write the manifest");
+    for subfolder in ["hatchling", "egg", "emotes"] {
+        fs::create_dir_all(folder.join(subfolder)).expect("make the Pack's folders");
+    }
+    let manifest = edits
+        .iter()
+        .fold(MANIFEST.to_owned(), |manifest, (line, with)| {
+            manifest.replace(line, with)
+        });
+    fs::write(folder.join("manifest.toml"), manifest).expect("write the manifest");
     write_strip(&folder.join("hatchling/idle.png"), &[idle(0), idle(1)]);
+    write_strip(
+        &folder.join("hatchling/nap.png"),
+        &[nap_frame(0), nap_frame(1)],
+    );
+    write_strip(&folder.join("egg/idle.png"), &[egg()]);
     for name in ["note", "pop"] {
         let frames: Vec<Picture> = emote_art(name)
             .iter()

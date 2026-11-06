@@ -873,7 +873,7 @@ fn given_a_pack_without_emotes_when_an_emote_is_shown_then_none_shows() {
 }
 
 /// The test Pack after an edit: "hatchling" is now the first Form, with a new first Animation, so its ids have all
-/// moved. Its default Action is "idle", its second, which plays 200 ms three times. It starts as an "egg".
+/// moved. Its default Action is "idle", its second, which plays 200 ms three times. It still starts as a "hatchling".
 fn edited_pack() -> PackDefinition {
     let hatchling = form(
         "hatchling",
@@ -890,7 +890,7 @@ fn edited_pack() -> PackDefinition {
     );
     PackDefinition {
         name: "Edited".to_owned(),
-        starting_form: FormId(1),
+        starting_form: FormId(0),
         forms: vec![hatchling, egg],
         emotes: Vec::new(),
         hit_mask_threshold: 128,
@@ -966,13 +966,12 @@ fn given_a_pet_moved_and_turned_when_the_pack_is_replaced_then_it_keeps_its_posi
 }
 
 #[test]
-fn given_a_pet_in_a_form_the_edited_pack_still_has_when_the_pack_is_replaced_then_it_stays_in_that_form_by_name()
- {
-    // Given: a "hatchling", the old Pack's second Form
+fn given_a_pet_in_its_starting_form_when_an_edit_renumbers_that_form_then_it_stays_in_it_by_name() {
+    // Given: a "hatchling", the old Pack's second Form and its starting Form
     let mut app = sim();
     ticks(&mut app, 4);
 
-    // When: the edited Pack's "hatchling" is its first Form, and it starts as an "egg"
+    // When: the edited Pack's "hatchling" is its first Form, and still its starting Form
     replace(&mut app, edited_pack());
 
     // Then: on the first Frame of that Form's default Action, "idle", now its second Animation
@@ -987,16 +986,171 @@ fn given_a_pet_in_a_form_the_edited_pack_still_has_when_the_pack_is_replaced_the
     assert_eq!(app.world().resource::<CurrentPack>().0.name, "Edited");
 }
 
+/// Puts the Pet in `form`, on the first Frame of `animation`, as growing will in roadmap item 4.
+fn put_pet_in(app: &mut App, form: FormId, animation: AnimationId) {
+    let world = app.world_mut();
+    let entity = world
+        .query_filtered::<Entity, With<Pet>>()
+        .single(world)
+        .unwrap();
+    world.entity_mut(entity).insert((
+        AnimationClock {
+            form,
+            animation,
+            playback: Playback::Looping,
+            played_ticks: 0,
+        },
+        ShownFrame {
+            form,
+            animation,
+            frame: 0,
+        },
+    ));
+}
+
 #[test]
-fn given_a_pet_in_a_form_the_edited_pack_no_longer_has_when_the_pack_is_replaced_then_it_takes_the_starting_form()
+fn given_a_pet_in_a_form_that_is_not_the_starting_one_when_an_edit_removes_that_form_then_it_takes_the_starting_form()
  {
-    // Given: a "hatchling"
+    // Given: an "egg", which isn't the starting Form
     let mut app = sim();
+    put_pet_in(&mut app, FormId(0), AnimationId(0));
 
-    // When
-    replace(&mut app, pack_without_hatchling());
+    // When: the edit has no "egg", and an "adult" comes first, so the starting Form, "hatchling", is the second
+    let mut edited = pack();
+    edited.forms[0] = form(
+        "adult",
+        vec![action("idle", 0)],
+        vec![animation("idle", vec![ms(300)])],
+    );
+    replace(&mut app, edited);
 
-    // Then: an "adult", the new starting Form
+    // Then: a "hatchling" on the first Frame of its default Action, "sleep"
+    assert_eq!(
+        pet::<ShownFrame>(&mut app),
+        ShownFrame {
+            form: FormId(1),
+            animation: AnimationId(1),
+            frame: 0
+        }
+    );
+}
+
+/// The test Pack with only the hatchling's default Action changed, to "idle", which plays 250 ms twice.
+fn pack_idling() -> PackDefinition {
+    let mut pack = pack();
+    pack.forms[1].default_action = ActionId(0);
+    pack
+}
+
+/// The test Pack with only its starting Form changed, to "egg", the first Form, whose default Action plays 500 ms.
+fn pack_starting_as_egg() -> PackDefinition {
+    PackDefinition {
+        starting_form: FormId(0),
+        ..pack()
+    }
+}
+
+/// The simulation, keeping the Frame the Pet shows at the end of each tick.
+fn recording_frames() -> App {
+    sim_with(Some(pack()), |app| {
+        app.init_resource::<Log<ShownFrame>>()
+            .add_systems(FixedUpdate, record_frame.in_set(Phase::Present));
+    })
+}
+
+fn frames_since_cleared(app: &App) -> Vec<(AnimationId, usize)> {
+    app.world()
+        .resource::<Log<ShownFrame>>()
+        .0
+        .iter()
+        .map(|shown| (shown.animation, shown.frame))
+        .collect()
+}
+
+#[test]
+fn given_a_pet_playing_its_default_action_when_an_edit_changes_only_that_forms_default_action_then_it_plays_the_new_one_with_its_own_timing()
+ {
+    // Given: a "hatchling" 4 ticks into "sleep", on its second Frame
+    let mut app = recording_frames();
+    ticks(&mut app, 4);
+    assert_eq!(pet::<ShownFrame>(&mut app).animation, AnimationId(1));
+
+    // When: "idle" is two Frames of 7.5 ticks
+    replace(&mut app, pack_idling());
+    let on_swapping = pet::<AnimationClock>(&mut app);
+    app.world_mut().resource_mut::<Log<ShownFrame>>().0.clear();
+    ticks(&mut app, 16);
+
+    // Then: from Frame 0 before any tick, so ticks 1 to 7 are before 250 ms, 8 to 14 before 500 ms, and 15 starts
+    // the second loop
+    assert_eq!(
+        on_swapping,
+        AnimationClock {
+            form: FormId(1),
+            animation: AnimationId(0),
+            playback: Playback::Looping,
+            played_ticks: 0
+        }
+    );
+    let idle = AnimationId(0);
+    assert_eq!(
+        runs(frames_since_cleared(&app)),
+        [((idle, 0), 7), ((idle, 1), 7), ((idle, 0), 2)]
+    );
+}
+
+#[test]
+fn given_a_pet_still_in_its_starting_form_when_an_edit_changes_the_starting_form_then_it_takes_the_new_one_from_its_first_frame()
+ {
+    // Given: a "hatchling", the starting Form, 4 ticks into "sleep"
+    let mut app = sim();
+    ticks(&mut app, 4);
+
+    // When: the edit starts as an "egg" instead, which it also had before
+    replace(&mut app, pack_starting_as_egg());
+
+    // Then: an "egg" on the first Frame of its default Action, before any time has passed
+    assert_eq!(
+        pet::<AnimationClock>(&mut app),
+        AnimationClock {
+            form: FormId(0),
+            animation: AnimationId(0),
+            playback: Playback::Looping,
+            played_ticks: 0
+        }
+    );
+    assert_eq!(
+        pet::<ShownFrame>(&mut app),
+        ShownFrame {
+            form: FormId(0),
+            animation: AnimationId(0),
+            frame: 0
+        }
+    );
+}
+
+#[test]
+fn given_a_pet_that_has_left_its_starting_form_when_an_edit_changes_the_starting_form_then_it_keeps_its_form_by_name()
+ {
+    // Given: an "egg", which isn't the starting Form, as a Pet that has grown will be in roadmap item 4
+    let mut app = sim();
+    put_pet_in(&mut app, FormId(0), AnimationId(0));
+
+    // When: the edit adds an "adult" before the others and starts as one, so the "egg" is now the second Form, and
+    // its old number is the new starting Form's
+    let mut edited = pack();
+    edited.forms.insert(
+        0,
+        form(
+            "adult",
+            vec![action("idle", 0)],
+            vec![animation("idle", vec![ms(300)])],
+        ),
+    );
+    edited.starting_form = FormId(0);
+    replace(&mut app, edited);
+
+    // Then: still an "egg", on its default Action
     assert_eq!(
         pet::<ShownFrame>(&mut app),
         ShownFrame {
@@ -1004,6 +1158,40 @@ fn given_a_pet_in_a_form_the_edited_pack_no_longer_has_when_the_pack_is_replaced
             animation: AnimationId(0),
             frame: 0
         }
+    );
+}
+
+#[test]
+fn given_an_actor_that_is_not_the_pet_in_the_starting_form_when_an_edit_changes_the_starting_form_then_only_the_pet_follows_it()
+ {
+    // Given: another Actor beside the Pet, both "hatchlings", the starting Form. The starting Form is the Pet's alone.
+    let mut app = sim();
+    let hatchling = (FormId(1), AnimationId(1));
+    let actor = app
+        .world_mut()
+        .spawn((
+            AnimationClock {
+                form: hatchling.0,
+                animation: hatchling.1,
+                playback: Playback::Looping,
+                played_ticks: 0,
+            },
+            ShownFrame {
+                form: hatchling.0,
+                animation: hatchling.1,
+                frame: 0,
+            },
+        ))
+        .id();
+
+    // When: the edit starts as an "egg" instead
+    replace(&mut app, pack_starting_as_egg());
+
+    // Then: the Pet is an "egg", and the other Actor keeps its Form by name
+    assert_eq!(pet::<ShownFrame>(&mut app).form, FormId(0));
+    assert_eq!(
+        app.world().get::<ShownFrame>(actor).unwrap().form,
+        FormId(1)
     );
 }
 
@@ -1184,10 +1372,10 @@ fn given_no_pack_when_a_pack_arrives_then_the_pet_appears_at_home_in_its_startin
     let mut app = sim_with(None, |_| {});
 
     // When
-    replace(&mut app, edited_pack());
+    replace(&mut app, pack_without_hatchling());
     step(&mut app, Duration::ZERO);
 
-    // Then: an "egg"
+    // Then: an "adult"
     assert_eq!(
         pet::<Position>(&mut app),
         Position(Point { x: 600, y: 800 })
