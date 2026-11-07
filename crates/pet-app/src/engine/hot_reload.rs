@@ -248,7 +248,7 @@ mod tests {
     use pet_core::geometry::{Point, Rect};
     use pet_core::hit_mask::Placement;
     use pet_core::pack::{AnimationId, EmoteId, FormId};
-    use pet_sim::{AnimationClock, EmoteRequest, PackReloaded, ShownEmote, SimPlugin};
+    use pet_sim::{AnimationClock, EmoteRequest, PackReloaded, ShownEmote};
 
     use super::*;
     use crate::engine::PetRenderPlugin;
@@ -288,9 +288,7 @@ mod tests {
             .insert_resource(RecordingPlatform::default())
             .init_resource::<Reloads>()
             .add_plugins((
-                SimPlugin {
-                    work_area: WORK_AREA,
-                },
+                crate::engine::test_support::sim_plugin(WORK_AREA),
                 PetRenderPlugin { overlay: WORK_AREA },
             ))
             .add_systems(

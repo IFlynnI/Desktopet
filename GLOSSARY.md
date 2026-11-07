@@ -135,8 +135,8 @@ first ones the Pet meets.
 _Avoid_: Wall, platform, collider
 
 **Material**:
-How grippy and how bouncy a surface or a Body is. Each Form gives its Body one, and an Action can override it while it
-runs, such as a landing that never bounces.
+How grippy and how bouncy a surface or a Body is. Each Form gives its Body one, and an Action or a Situation can
+override it while it runs, such as a landing that never bounces.
 _Avoid_: Physics material, surface type
 
 **Prop**:

@@ -12,6 +12,7 @@ use bevy::winit::{EventLoopProxyWrapper, WinitUserEvent};
 use pet_core::fullscreen::RETURN_DELAY;
 use pet_core::geometry::{Point, Rect};
 use pet_platform::{Platform, ShellEvent};
+use pet_sim::WorkArea;
 
 use super::tray_icon;
 
@@ -79,8 +80,12 @@ pub fn spawn_camera(mut commands: Commands) {
 /// Has to run on the main thread. `Platform::start` changes the Overlay's styles, and Windows answers that
 /// on the thread that owns the window. From a worker thread it would wait on the main thread, which is
 /// itself waiting for this system to finish.
+///
+/// The work area is read once more afterwards: the app read it before starting, and the shell thread only reports
+/// changes from when it started, so one in between would otherwise never arrive.
 pub fn attach_platform(
     mut commands: Commands,
+    mut work_area: ResMut<WorkArea>,
     windows: Query<&RawHandleWrapper, With<PrimaryWindow>>,
     events: Res<ShellEventSender>,
     proxy: Res<EventLoopProxyWrapper>,
@@ -98,6 +103,7 @@ pub fn attach_platform(
     let tray_icon = tray_icon::tray_icon_image();
     let platform = Platform::start(window, events.0.clone(), wake, tray_icon, RETURN_DELAY);
     commands.insert_resource(PlatformHandle(platform));
+    work_area.set_if_neq(WorkArea(pet_platform::home_work_area()));
 }
 
 #[cfg(test)]

@@ -1,0 +1,8 @@
+# obstacles.toml as docs/proposals/item-4-architecture.md shows it: rectangles in physical pixels from the Home
+# monitor's top-left corner.
+[[obstacle]]
+rect = { x = 1600, y = 1500, width = 40, height = 500 }
+material = { friction = 0.1, bounciness = 0.0 }   # a wall to slide down
+
+[[obstacle]]
+rect = { x = 200, y = 1800, width = 300, height = 20 }   # a shelf, with the default Material

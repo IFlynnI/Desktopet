@@ -3052,6 +3052,13 @@ dependencies = [
 [[package]]
 name = "pet-core"
 version = "0.1.0"
+dependencies = [
+ "pet-physics",
+]
+
+[[package]]
+name = "pet-physics"
+version = "0.1.0"
 
 [[package]]
 name = "pet-platform"

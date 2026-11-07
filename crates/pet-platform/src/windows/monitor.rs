@@ -12,6 +12,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
 /// The Home monitor's work area, which leaves out the taskbar. The Home monitor is the primary monitor
 /// until settings arrive.
 pub fn home_work_area() -> Rect {
+    read_home_work_area().expect("Windows always reports a work area")
+}
+
+/// The same, or `None` if Windows can't say. This is the one to use inside a window's callback, where a panic would end
+/// the whole program rather than just the thread.
+pub fn read_home_work_area() -> Option<Rect> {
     let mut rect = RECT::default();
     // SAFETY: `rect` is a live local of the type SPI_GETWORKAREA writes during the call.
     unsafe {
@@ -22,13 +28,13 @@ pub fn home_work_area() -> Rect {
             SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
         )
     }
-    .expect("Windows always reports a work area");
-    Rect {
+    .ok()?;
+    Some(Rect {
         left: rect.left,
         top: rect.top,
         right: rect.right,
         bottom: rect.bottom,
-    }
+    })
 }
 
 /// The whole Home monitor, taskbar included, or `None` if it can't be read, which a display change could cause.

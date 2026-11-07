@@ -64,7 +64,10 @@ fn draw(
     mut emotes: Query<EmoteDrawable, (With<EmoteOf>, Without<Pet>)>,
 ) {
     for (pet, shown_emote, shown, position, emoting) in &pets {
-        let changed = shown_emote.is_changed() || shown.is_changed() || position.is_changed();
+        let changed = shown_emote.is_changed()
+            || shown.is_changed()
+            || position.is_changed()
+            || overlay.is_changed();
         if !changed {
             continue;
         }
@@ -118,7 +121,7 @@ mod tests {
     use pet_core::geometry::{Point, Rect};
     use pet_core::pack::EmoteId;
     use pet_core::placement::Facing;
-    use pet_sim::{EmoteFrame, Faces, Pet, Position, ShownEmote, ShownFrame, SimPlugin};
+    use pet_sim::{EmoteFrame, Faces, Pet, Position, ShownEmote, ShownFrame};
 
     use super::*;
     use crate::engine::overlay::OverlayRect;
@@ -195,9 +198,7 @@ mode = "one-shot"
             }))
             .add_systems(Startup, add_starting_pack)
             .add_plugins((
-                SimPlugin {
-                    work_area: WORK_AREA,
-                },
+                crate::engine::test_support::sim_plugin(WORK_AREA),
                 PixelArtPlugin,
                 EmoteViewPlugin,
             ));

@@ -3,9 +3,11 @@
 mod emote_view;
 mod hot_reload;
 mod log_file;
+mod obstacle_view;
 mod overlay;
 mod pack_assets;
 mod pixel_art;
+mod pointer;
 mod presence;
 mod render_config;
 #[cfg(windows)]
@@ -16,6 +18,7 @@ mod shadow;
 #[cfg(test)]
 mod test_support;
 mod tray_icon;
+mod work_area;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, mpsc};
@@ -29,11 +32,13 @@ use bevy::render::view::Msaa;
 use bevy::window::ExitCondition;
 use pet_core::geometry::Rect;
 use pet_core::presence::Presence;
-use pet_sim::SimPlugin;
+use pet_sim::{SimPlugin, WorkArea};
 
 use emote_view::EmoteViewPlugin;
+use obstacle_view::ObstacleViewPlugin;
 use overlay::{OverlayRect, PlatformHandle, ShellEventSender};
 use pixel_art::PixelArtPlugin;
+use pointer::PointerPlugin;
 use presence::{CurrentPresence, ManualHideAtExit, ShellEvents};
 use renderer::RendererPlugin;
 use shadow::ShadowPlugin;
@@ -44,9 +49,11 @@ pub use pack_assets::PackAtStartup;
 pub use render_config::render_plugin;
 pub use render_failure::{RENDER_FAILURE_EXIT, is_render_failure};
 
+use crate::config::StartingConfig;
 use crate::pack::StartingPack;
 
-/// Draws the Pet the simulation shows, its shadow and its Emote, into whatever camera exists, on a clear background.
+/// Draws the Pet the simulation shows, its shadow, its Emote and the Obstacles' outlines, into whatever camera exists,
+/// on a clear background.
 /// `overlay` is the rect the camera covers, in physical pixels. The Pack comes from `PackAtStartup`, and an edited one
 /// replaces it when a `PackEdited` arrives.
 pub struct PetRenderPlugin {
@@ -72,6 +79,7 @@ impl Plugin for PetRenderPlugin {
                 ShadowPlugin,
                 RendererPlugin,
                 EmoteViewPlugin,
+                ObstacleViewPlugin,
             ));
     }
 }
@@ -99,14 +107,27 @@ pub fn base_plugins() -> PluginGroupBuilder {
         .set(render_config::render_plugin())
 }
 
+/// What went wrong reading the config folder, logged once the log file exists.
+#[derive(Resource)]
+struct ConfigProblems(Vec<String>);
+
+fn log_config_problems(mut commands: Commands, problems: Res<ConfigProblems>) {
+    for problem in &problems.0 {
+        error!("{problem}");
+    }
+    commands.remove_resource::<ConfigProblems>();
+}
+
 /// The engine, ready to run. With no usable Pack it still runs, with no Pet, so the tray can still quit. `watching`
-/// is the chosen Pack's folder being watched for edits, started before the Pack was read.
+/// is the chosen Pack's folder being watched for edits, started before the Pack was read. `config` is what the
+/// config folder held at startup.
 pub(crate) fn app(
     work_area: Rect,
     start: Presence,
     manual_hide_at_exit: Arc<AtomicBool>,
     pack: StartingPack,
     watching: Watching,
+    config: StartingConfig,
 ) -> App {
     let rect = overlay::overlay_rect(work_area);
     let (sender, receiver) = mpsc::channel();
@@ -118,6 +139,7 @@ pub(crate) fn app(
         .insert_resource(ShellEventSender(sender))
         .insert_resource(ShellEvents(Mutex::new(receiver)))
         .insert_resource(PackAtStartup(pack))
+        .insert_resource(ConfigProblems(config.problems))
         .add_plugins(
             base_plugins()
                 .set(LogPlugin {
@@ -126,8 +148,17 @@ pub(crate) fn app(
                 })
                 .set(overlay::window_plugin(rect, render_config::ALPHA_MODE)),
         )
-        .add_plugins((SimPlugin { work_area }, PetRenderPlugin { overlay: rect }))
-        .add_systems(Startup, overlay::spawn_camera)
+        .add_plugins((
+            SimPlugin {
+                work_area,
+                scale: renderer::SCALE,
+                physics: config.physics,
+                obstacles: config.obstacles,
+            },
+            PetRenderPlugin { overlay: rect },
+            PointerPlugin,
+        ))
+        .add_systems(Startup, (overlay::spawn_camera, log_config_problems))
         .add_systems(
             Update,
             (
@@ -137,6 +168,7 @@ pub(crate) fn app(
                 presence::apply_presence.run_if(resource_exists::<PlatformHandle>.and_then(
                     resource_changed::<CurrentPresence>.or_eager(resource_added::<PlatformHandle>),
                 )),
+                work_area::follow.run_if(resource_changed::<WorkArea>),
             )
                 .chain(),
         )

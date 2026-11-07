@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use crate::animation_clock::Playback;
+use crate::physics::Material;
 
 /// A Form, by its place in `PackDefinition::forms`. Names from the Pack become numbers like this one, so the rest of
 /// the program never compares strings.
@@ -88,7 +89,15 @@ pub struct FormDef {
     pub animations: Vec<AnimationDef>,
     /// The Animation each mapped Situation plays. A Situation that isn't here plays the default Action.
     pub situations: Vec<(Situation, AnimationId)>,
+    /// How grippy and bouncy its Body is. A Form that doesn't say has [`DEFAULT_MATERIAL`].
+    pub material: Material,
 }
+
+/// The Material of a Form that doesn't give one.
+pub const DEFAULT_MATERIAL: Material = Material {
+    friction: 0.6,
+    bounciness: 0.1,
+};
 
 impl FormDef {
     pub fn action(&self, id: ActionId) -> &ActionDef {
@@ -239,6 +248,7 @@ mod tests {
             actions: vec![action("idle", 0), action("sleep", 1)],
             animations: vec![animation("idle"), animation("sleep")],
             situations: Vec::new(),
+            material: DEFAULT_MATERIAL,
         };
 
         // When
@@ -332,6 +342,7 @@ mod tests {
             ],
             animations: vec![animation("idle"), animation("sleep")],
             situations: Vec::new(),
+            material: DEFAULT_MATERIAL,
         };
 
         // When

@@ -89,7 +89,7 @@ IDs are stable references for issues and tests.
 | Delivered by | Requirements |
 |---|---|
 | Items 2 and 3 (built) | WIN-01–04, WIN-07–11, REN-01–05 (REN-04 draws Emotes; item 4 slice 7 decides when to show them) |
-| Item 4, slice 1: Ground + throw | WIN-06, INT-01; BEH-06 fall, land, being-held |
+| Item 4, slice 1: Ground + throw | WIN-06, INT-01, WIN-04's exception while holding the Pet; BEH-06 fall, land, being-held |
 | Item 4, slice 2: Save | SAV-01, SAV-02, SET-02 |
 | Item 4, slice 3: Petting + hatching | INT-02, PRG-01, PRG-02, PRG-05 |
 | Item 4, slice 4: Reactions | INT-04 (a single poke); BEH-06 react-to-poke, being-petted |
@@ -107,7 +107,7 @@ IDs are stable references for issues and tests.
 | WIN-01 | Borderless, per-pixel transparent window; only the sprite (and its effects) is visible. |
 | WIN-02 | Always on top of normal application windows. |
 | WIN-03 | Hidden from the taskbar **and** Alt-Tab. |
-| WIN-04 | **Click-through everywhere except the pet's opaque pixels.** Clicks, drags and right-clicks on the pet go to the pet; everything else goes to the app underneath. |
+| WIN-04 | **Click-through everywhere except the pet's opaque pixels.** Clicks, drags and right-clicks on the pet go to the pet; everything else goes to the app underneath. **Exception while holding the Pet:** while the owner holds the Pet, the Overlay catches clicks wherever the cursor is, because the Pet trails behind the cursor. It stops when the hold ends or when Windows takes the mouse away, as Alt-Tab does. |
 | WIN-05 | The pet lives on **one monitor**, chosen in settings. |
 | WIN-06 | A **ground plane** at the top of the taskbar / bottom of the monitor work area; the pet is subject to gravity and lands on it. |
 | WIN-07 | **Auto-hide** while a fullscreen application is in the foreground; reappear when it leaves. |
@@ -552,6 +552,8 @@ Research: [pet-memory.md](research/pet-memory.md), [mind-architecture.md](resear
 | The owner's Mind edits are a per-Character override over the Pack (2026-11-06) | A Pack update can't wipe them, and a bad edit can't fail the Pack's validation. What the Pet learned is a third, separate layer in Progress. |
 | One hot reload system serves Packs, `balance.toml`, `obstacles.toml` and `settings.toml` (2026-11-06) | It's written once, and the Pack is the first source moved onto it. The save file is excluded because the app writes it. |
 | `format_version` stays 1 through the MVP (2026-11-06) | Only the owner's Packs exist. Bumps and migrations for Packs start when Packs are shared. |
+| While the owner holds the Pet, the Overlay catches clicks wherever the cursor is, until the hold ends or Windows takes the mouse away (2026-11-07) | On the grab string the Pet trails behind the cursor, so its pixels slip out from under it. The hold mustn't break, nor a click reach the app underneath, just because they did. |
+| Slice 5 chooses the landing speed that counts as an impact (2026-11-07) | XP is the first thing to use impacts, so the number is tuned there. Until then each landing only reports its speed, and nothing is called an impact. |
 
 ## 13. References
 

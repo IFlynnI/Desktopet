@@ -7,9 +7,9 @@ use std::time::Duration;
 use pet_core::geometry::{Point, Rect};
 
 use crate::harness::{
-    CursorGuard, Packs, PetProcess, bottom_centre, click, foreground_window, make_dpi_aware,
-    monitor_area, placeholder_opaque_colours, press_hotkey, wait_until, window_under_cursor_at,
-    work_area,
+    CursorGuard, Packs, PetProcess, bottom_centre, click, drag_cursor_to, foreground_window,
+    make_dpi_aware, monitor_area, placeholder_opaque_colours, press_hotkey, press_left_on,
+    wait_until, window_under_cursor_at, work_area,
 };
 use crate::metrics::{GpuUse, MAX_HIDDEN_CPU_PERCENT, cpu_percent_of_one_core};
 use crate::screen::{Expected, PetView, colour_at, colours_in};
@@ -38,6 +38,10 @@ fn scene() -> Scene {
 }
 
 fn scene_with(packs: Packs) -> Scene {
+    scene_with_config(packs, &[])
+}
+
+fn scene_with_config(packs: Packs, config: &[(&str, &str)]) -> Scene {
     make_dpi_aware();
     let cursor = CursorGuard::new();
     let work = work_area();
@@ -52,7 +56,7 @@ fn scene_with(packs: Packs) -> Scene {
     // A real click puts it in front of whatever is open, and focus moves to it as it would to a real app.
     click(away_from_the_pet(area), &[window.hwnd()]);
     window.drop_to_normal();
-    let pet = PetProcess::launch_with(packs);
+    let pet = PetProcess::launch_with_config(packs, config);
     assert!(
         wait_until(Duration::from_secs(10), || PetView::observe(area)
             .pet_pixels()
@@ -496,4 +500,116 @@ fn given_a_broken_pack_when_launching_then_nothing_is_drawn_over_the_window_behi
     // Then
     assert!(pet.is_shown(), "the empty Overlay is up");
     assert_eq!(PetView::observe(area).pet_pixels(), 0);
+}
+
+/// Long enough for a thrown or dropped Pet to land and settle.
+const LANDS: Duration = Duration::from_secs(3);
+
+#[test]
+fn given_the_pet_on_the_ground_when_the_owner_lifts_it_and_lets_go_then_it_hangs_below_the_cursor_and_falls_back_onto_the_ground_plane()
+ {
+    // Given
+    let scene = scene();
+    let work = work_area();
+    let grab = PetView::observe(scene.area)
+        .solid_point()
+        .expect("the Pet is on screen");
+
+    // When: lifted 200 pixels over half a second, held still, then let go
+    let button = press_left_on(grab, scene.pet.overlay());
+    drag_cursor_to(
+        Point {
+            x: grab.x,
+            y: grab.y - 200,
+        },
+        20,
+        Duration::from_millis(25),
+    );
+    thread::sleep(Duration::from_millis(700));
+    let held = PetView::observe(scene.area).bounds();
+    button.release();
+    let landed = wait_until(LANDS, || {
+        PetView::observe(scene.area)
+            .bounds()
+            .is_some_and(|bounds| bounds.bottom == work.bottom)
+    });
+
+    // Then: it hung below the grab point, off the ground, and came back down
+    let held = held.expect("the Pet is on screen while held");
+    assert!(held.bottom < work.bottom - 100, "lifted: {held:?}");
+    assert!(
+        held.top > grab.y - 200 - PET_HEIGHT,
+        "below the cursor: {held:?}"
+    );
+    assert!(landed, "the Pet never landed back on the Ground plane");
+}
+
+#[test]
+fn given_a_wall_in_obstacles_toml_when_the_owner_flings_the_pet_at_it_then_it_never_gets_past_and_the_wall_shows_but_lets_clicks_through()
+ {
+    // Given: a wall 100 pixels right of the Pet's centre, from near the test window's top to the ground. It's placed
+    // before the scene starts, so the screen must be read in physical pixels first, as the scene and the app read it.
+    make_dpi_aware();
+    let work = work_area();
+    let monitor = monitor_area();
+    let centre = (work.left + work.right) / 2;
+    let corner = bottom_centre(work, 400, 300);
+    let wall = Rect {
+        left: centre + 100,
+        top: corner.y + 50,
+        right: centre + 112,
+        bottom: work.bottom,
+    };
+    let obstacles = format!(
+        "[[obstacle]]
+rect = {{ x = {}, y = {}, width = {}, height = {} }}
+",
+        wall.left - monitor.left,
+        wall.top - monitor.top,
+        wall.width(),
+        wall.height()
+    );
+    let scene = scene_with_config(Packs::Placeholder, &[("obstacles.toml", &obstacles)]);
+    let left_of_wall = Rect {
+        right: wall.left,
+        ..scene.area
+    };
+    let right_of_wall = Rect {
+        left: wall.right,
+        ..scene.area
+    };
+    let grab = PetView::observe(left_of_wall)
+        .solid_point()
+        .expect("the Pet is on screen");
+
+    // When: flung right, far past the wall, in a quick flick
+    let button = press_left_on(grab, scene.pet.overlay());
+    drag_cursor_to(
+        Point {
+            x: grab.x + 400,
+            y: grab.y - 60,
+        },
+        4,
+        Duration::from_millis(8),
+    );
+    button.release();
+    thread::sleep(LANDS);
+
+    // Then: the Pet is still left of the wall, on the ground, and the wall's outline shows but isn't hit
+    let bounds = PetView::observe(left_of_wall)
+        .bounds()
+        .expect("the Pet is left of the wall");
+    assert!(bounds.right <= wall.left, "{bounds:?} against {wall:?}");
+    assert_eq!(bounds.bottom, work.bottom);
+    assert_eq!(PetView::observe(right_of_wall).pet_pixels(), 0);
+    let on_the_outline = Point {
+        x: wall.left,
+        y: (wall.top + wall.bottom) / 2,
+    };
+    assert_ne!(colour_at(on_the_outline), BACKGROUND, "the wall is drawn");
+    assert_eq!(
+        window_under_cursor_at(on_the_outline, SWEEP_SETTLE),
+        scene.window.hwnd(),
+        "a click on the wall goes to the window behind"
+    );
 }

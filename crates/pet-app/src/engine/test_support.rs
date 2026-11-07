@@ -1,5 +1,5 @@
-//! What several of the engine's unit tests share: a captured log, a stand-in for the platform's hit-test thread, and
-//! Packs written into folders of their own.
+//! What several of the engine's unit tests share: the simulation as the app runs it, a captured log, a stand-in for
+//! the platform's hit-test thread, and Packs written into folders of their own.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -9,12 +9,23 @@ use bevy::log::tracing;
 use bevy::log::tracing_subscriber::fmt;
 use bevy::prelude::*;
 use pet_content::LoadedPack;
+use pet_core::geometry::Rect;
 use pet_core::hit_mask::{HitMask, Placement};
 use pet_core::pack::FormId;
 use pet_platform::HitTarget;
-use pet_sim::{AnimationClock, CurrentPack, Pet};
+use pet_sim::{AnimationClock, CurrentPack, Pet, SimPlugin};
 
-use super::renderer::HitTest;
+use super::renderer::{HitTest, SCALE};
+
+/// The simulation of `work_area` as the app runs it, with the default balance and no Obstacles.
+pub fn sim_plugin(work_area: Rect) -> SimPlugin {
+    SimPlugin {
+        work_area,
+        scale: SCALE,
+        physics: pet_content::Balance::default().physics,
+        obstacles: Vec::new(),
+    }
+}
 
 /// Everything logged while it's in use, as text.
 #[derive(Clone, Default)]

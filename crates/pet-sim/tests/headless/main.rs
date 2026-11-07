@@ -2,6 +2,8 @@
 //! `bevy` crate, which `pet-sim` doesn't depend on, so these use the two of its plugins that matter here: the task
 //! pools and time.
 
+mod motion;
+
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,10 +16,12 @@ use pet_core::pack::{
     ActionDef, ActionId, Anchor, AnimationDef, AnimationId, Body, CellSize, EmoteDef, EmoteId,
     EmoteMode, FormDef, FormId, PackDefinition,
 };
+use pet_core::physics::{GrabString, Tuning};
 use pet_core::placement::Facing;
 use pet_sim::{
-    AnimationClock, CurrentPack, EmoteClock, EmoteFrame, EmoteRequest, Faces, Hidden, PackReloaded,
-    Pet, Phase, PlayingEmote, Position, ShownEmote, ShownFrame, SimPlugin, replace_pack,
+    AnimationClock, CurrentPack, EmoteClock, EmoteFrame, EmoteRequest, Faces, Hidden, Motion,
+    PackReloaded, Pet, Phase, PlayingEmote, Position, ShownEmote, ShownFrame, SimPlugin,
+    replace_pack,
 };
 
 const WORK_AREA: Rect = Rect {
@@ -50,6 +54,7 @@ fn form(name: &str, actions: Vec<ActionDef>, animations: Vec<AnimationDef>) -> F
         actions,
         animations,
         situations: Vec::new(),
+        material: pet_core::pack::DEFAULT_MATERIAL,
     }
 }
 
@@ -95,13 +100,44 @@ fn pack() -> PackDefinition {
 }
 
 /// The simulation, before its first update. Time moves only when a test says so.
+/// Feel numbers for the tests. The tests prove rules, so any sensible numbers do.
+const TUNING: Tuning = Tuning {
+    gravity: 3000.0,
+    max_release_speed: 2500.0,
+    ground_friction: 0.8,
+    grab: GrabString {
+        length: 24.0,
+        stiffness: 400.0,
+        damping: 30.0,
+        swing_drag: 4.0,
+    },
+};
+
+const SCALE: u32 = 2;
+
+/// The simulation of the work area with no Obstacles.
+fn plugin() -> SimPlugin {
+    SimPlugin {
+        work_area: WORK_AREA,
+        scale: SCALE,
+        physics: TUNING,
+        obstacles: Vec::new(),
+    }
+}
+
 fn unstarted(pack: Option<PackDefinition>, add: impl FnOnce(&mut App)) -> App {
+    unstarted_with(plugin(), pack, add)
+}
+
+fn unstarted_with(
+    plugin: SimPlugin,
+    pack: Option<PackDefinition>,
+    add: impl FnOnce(&mut App),
+) -> App {
     let mut app = App::new();
     app.add_plugins((TaskPoolPlugin::default(), TimePlugin))
         .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO))
-        .add_plugins(SimPlugin {
-            work_area: WORK_AREA,
-        });
+        .add_plugins(plugin);
     if let Some(pack) = pack {
         app.insert_resource(CurrentPack(Arc::new(pack)));
     }
@@ -944,17 +980,19 @@ fn reloads(app: &App) -> usize {
 
 #[test]
 fn given_a_pet_moved_and_turned_when_the_pack_is_replaced_then_it_keeps_its_position_and_facing() {
-    // Given
+    // Given: standing on the ground away from home, so the physics leaves it there
     let mut app = sim();
-    let away = Position(Point { x: 321, y: 456 });
+    let away = Position(Point { x: 321, y: 800 });
     let world = app.world_mut();
-    let entity = world
-        .query_filtered::<Entity, With<Pet>>()
+    let (entity, mut motion) = world
+        .query_filtered::<(Entity, &Motion), With<Pet>>()
         .single(world)
+        .map(|(entity, motion)| (entity, *motion))
         .unwrap();
+    motion.0.anchor = pet_core::physics::Vec2::new(321.0, 800.0);
     world
         .entity_mut(entity)
-        .insert((away, Faces(Facing::Mirrored)));
+        .insert((away, motion, Faces(Facing::Mirrored)));
 
     // When
     replace(&mut app, edited_pack());

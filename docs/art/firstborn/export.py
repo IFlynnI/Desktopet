@@ -49,6 +49,8 @@ SHELL_KEYS = set("stuvw")
 
 FORMS = {
     "egg": dict(anims=egg.ANIMATIONS, cell=brim.EGG_CELL, anchor=brim.EGG_ANCHOR, default="idle",
+                # (friction, bounciness): a little bouncier than a Form that gives no Material
+                material=(0.6, 0.3),
                 actions={"idle": ("idle", None), "petted": ("wobble", None)},
                 situations={"held": "held", "falling": "falling", "landing": "landing"}),
     "hatchling": dict(anims=hatchling.ANIMATIONS, cell=(brim.CELL_W, brim.CELL_H), anchor=brim.ANCHOR,
@@ -237,7 +239,11 @@ def build(report):
         manifest += [f'[forms.{form}]', f'cell = {{ width = {spec["cell"][0]}, height = {spec["cell"][1]} }}',
                      f'anchor = {{ x = {ax}, y = {ay} }}', f'body = {toml_body(body)}',
                      f'default_action = "{spec["default"]}"',
-                     f'shadow = {{ width = {SHADOW["width"]}, colour = "{SHADOW["colour"]}" }}', '']
+                     f'shadow = {{ width = {SHADOW["width"]}, colour = "{SHADOW["colour"]}" }}']
+        if "material" in spec:
+            friction, bounciness = spec["material"]
+            manifest.append(f'material = {{ friction = {friction}, bounciness = {bounciness} }}')
+        manifest.append('')
         for action, (anim_name, body_for) in spec["actions"].items():
             manifest.append(f'[forms.{form}.actions.{action}]')
             manifest.append(f'animation = "{anim_name}"')
@@ -315,7 +321,8 @@ def validate(folder):
     forms = m.get("forms", {})
     if not forms or m.get("starting_form") not in forms:
         errors.append("starting_form: must name a Form")
-    form_fields = {"cell", "anchor", "body", "default_action", "shadow", "actions", "situations", "animations"}
+    form_fields = {"cell", "anchor", "body", "default_action", "shadow", "material", "actions", "situations",
+                   "animations"}
     for fname, form in forms.items():
         path = f"forms.{fname}"
         for k in set(form) - form_fields:
@@ -329,6 +336,13 @@ def validate(folder):
         for b in [form["body"]] + [a["body"] for a in actions.values() if "body" in a]:
             if b["width"] <= 0 or b["height"] <= 0:
                 errors.append(f"{path}: a Body without a positive size")
+        if "material" in form:
+            material = form["material"]
+            for k in set(material) - {"friction", "bounciness"}:
+                errors.append(f"{path}.material.{k}: isn't a field")
+            for k in ("friction", "bounciness"):
+                if not 0 <= material.get(k, -1) <= 1:
+                    errors.append(f"{path}.material.{k}: must be between 0 and 1")
         used = set()
         for aname, a in actions.items():
             for k in set(a) - {"animation", "body"}:

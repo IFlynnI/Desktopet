@@ -20,6 +20,7 @@ use bevy::winit::WinitPlugin;
 use pet_app::{PackAtStartup, PetRenderPlugin, StartingPack};
 use pet_content::LoadedPack;
 use pet_core::geometry::Rect;
+use pet_core::physics::Obstacle;
 use pet_sim::{Pet, SimPlugin};
 
 /// An RGBA8 picture, row by row from the top.
@@ -94,6 +95,17 @@ pub struct Offscreen {
 impl Offscreen {
     /// The Pet from `pack`, drawn into a `width` x `height` image that is the whole work area and the whole Overlay.
     pub fn start(folder: PathBuf, pack: LoadedPack, width: u32, height: u32) -> Self {
+        Self::start_with(folder, pack, width, height, Vec::new())
+    }
+
+    /// As `start`, with `obstacles` in the world.
+    pub fn start_with(
+        folder: PathBuf,
+        pack: LoadedPack,
+        width: u32,
+        height: u32,
+        obstacles: Vec<Obstacle>,
+    ) -> Self {
         let area = Rect {
             left: 0,
             top: 0,
@@ -115,7 +127,12 @@ impl Offscreen {
             .insert_resource(PackAtStartup(StartingPack::Loaded { folder, pack }))
             .add_plugins(plugins)
             .add_plugins((
-                SimPlugin { work_area: area },
+                SimPlugin {
+                    work_area: area,
+                    scale: 2,
+                    physics: pet_content::Balance::default().physics,
+                    obstacles,
+                },
                 PetRenderPlugin { overlay: area },
             ));
         // With no `run`, the test does what it would have done.

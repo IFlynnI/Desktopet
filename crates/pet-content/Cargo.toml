@@ -3,7 +3,7 @@ name = "pet-content"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
-description = "Reads and checks Desktop Pet Packs: a TOML manifest and PNG strips become pet-core Definitions."
+description = "Reads and checks Desktop Pet Packs, whose TOML manifest and PNG strips become pet-core Definitions, and the owner's config files."
 
 [[bin]]
 name = "pet-pack"

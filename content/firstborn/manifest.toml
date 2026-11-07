@@ -10,6 +10,7 @@ anchor = { x = 20, y = 48 }
 body = { x = -14, y = -36, width = 28, height = 36 }
 default_action = "idle"
 shadow = { width = 30, colour = "#1a132660" }
+material = { friction = 0.6, bounciness = 0.3 }
 
 [forms.egg.actions.idle]
 animation = "idle"

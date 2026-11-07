@@ -1,0 +1,7 @@
+# balance.toml as docs/proposals/item-4-architecture.md shows it for slice 1: the feel numbers, which are starting
+# values tuned by hand.
+[physics]
+gravity = 3000                 # px/s²
+max_release_speed = 2500       # px/s
+ground_friction = 0.8
+grab = { length = 24, stiffness = 400, damping = 30, swing_drag = 4 }

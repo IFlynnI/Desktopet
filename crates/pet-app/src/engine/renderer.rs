@@ -36,12 +36,6 @@ impl HitTest for PlatformHandle {
     }
 }
 
-/// A Pet whose Frame, position or facing has changed since the system last ran.
-type ChangedPet = (
-    With<Pet>,
-    Or<(Changed<ShownFrame>, Changed<Position>, Changed<Faces>)>,
-);
-
 /// What the simulation says is drawn, and where.
 type Shown = (
     Ref<'static, ShownFrame>,
@@ -55,17 +49,25 @@ type Drawn = (
     Option<&'static mut Transform>,
 );
 
-/// Draws a Pet whose Frame, position or facing has changed, making it drawable the first time. Drawn the
-/// `pixel_art` way, not as a `Sprite`.
+/// Draws a Pet whose Frame, position or facing has changed, or when the Overlay has moved, making it drawable the
+/// first time. Drawn the `pixel_art` way, not as a `Sprite`.
 fn draw(
     mut commands: Commands,
     pack: Res<CurrentPack>,
     assets: Res<PackAssets>,
     overlay: Res<OverlayRect>,
     quad: Res<UnitQuad>,
-    mut pets: Query<(Entity, Shown, Drawn), ChangedPet>,
+    mut pets: Query<(Entity, Shown, Drawn), With<Pet>>,
 ) {
     for (pet, (shown, position, faces), (drawn_material, drawn_transform)) in &mut pets {
+        // The Overlay moves when the work area does, and with it where everything on it is drawn.
+        let changed = shown.is_changed()
+            || position.is_changed()
+            || faces.is_changed()
+            || overlay.is_changed();
+        if !changed {
+            continue;
+        }
         let form = pack.0.form(shown.form);
         let placement = placement::place(position.0, form, SCALE, faces.0);
         let (width, height) = (
@@ -142,7 +144,7 @@ mod tests {
     use pet_core::hit_mask::Placement;
     use pet_core::pack::{AnimationId, EmoteId, FormId};
     use pet_core::placement::Facing;
-    use pet_sim::{EmoteFrame, ShownEmote, SimPlugin};
+    use pet_sim::{EmoteFrame, ShownEmote};
 
     use super::*;
     use crate::engine::emote_view::{EmoteOf, EmoteViewPlugin};
@@ -169,9 +171,7 @@ mod tests {
             .insert_resource(PackAtStartup(starting))
             .add_systems(Startup, crate::engine::pack_assets::add_starting_pack)
             .add_plugins((
-                SimPlugin {
-                    work_area: WORK_AREA,
-                },
+                crate::engine::test_support::sim_plugin(WORK_AREA),
                 PixelArtPlugin,
                 RendererPlugin,
             ));
@@ -333,9 +333,7 @@ mod tests {
             .insert_resource(PackAtStartup(StartingPack::Loaded { folder, pack }))
             .add_systems(Startup, crate::engine::pack_assets::add_starting_pack)
             .add_plugins((
-                SimPlugin {
-                    work_area: WORK_AREA,
-                },
+                crate::engine::test_support::sim_plugin(WORK_AREA),
                 PixelArtPlugin,
                 ShadowPlugin,
                 EmoteViewPlugin,

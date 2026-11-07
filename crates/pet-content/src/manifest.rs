@@ -8,13 +8,15 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use pet_core::pack::{
-    ActionDef, ActionId, Anchor, AnimationDef, AnimationId, Body, CellSize, EmoteDef, EmoteMode,
-    FormDef, FormId, Marker, PackDefinition, Shadow, Situation,
+    ActionDef, ActionId, Anchor, AnimationDef, AnimationId, Body, CellSize, DEFAULT_MATERIAL,
+    EmoteDef, EmoteMode, FormDef, FormId, Marker, PackDefinition, Shadow, Situation,
 };
-use serde::de::DeserializeOwned;
+use pet_core::physics::Material;
 use toml::Value;
 
 use crate::PackError;
+use crate::fields::{Entries, Fields, Mistake, kind};
+use crate::material;
 
 pub const MANIFEST: &str = "manifest.toml";
 
@@ -26,9 +28,6 @@ pub const DEFAULT_HIT_MASK_THRESHOLD: u32 = 128;
 
 /// What the Definition is made from. Only a manifest with no errors at all becomes one.
 const ONLY_WITHOUT_ERRORS: &str = "the Definition is only made from a manifest with no errors";
-
-/// Named entries, such as a Form's Actions. An entry is `None` when it isn't a table at all.
-pub type Entries<T> = BTreeMap<String, Option<T>>;
 
 /// A manifest as read. Wherever a value is `None`, its mistake has already been reported. A table of entries that's
 /// missing is empty, but one of the wrong kind is `None`, so nothing is judged against it.
@@ -51,6 +50,8 @@ pub struct Form {
     pub default_action: Option<String>,
     /// `None` when there isn't one, or it has a mistake.
     pub shadow: Option<ShadowShape>,
+    /// `None` when there isn't one, or it has a mistake.
+    pub material: Option<Material>,
     pub actions: Option<Entries<Action>>,
     /// Which Animation each Situation plays.
     pub situations: Option<Entries<String>>,
@@ -112,145 +113,7 @@ pub struct Emote {
     pub mode: Option<String>,
 }
 
-/// The kind of a TOML value with "a" or "an" in front, such as "an integer".
-fn kind(value: &Value) -> String {
-    let name = value.type_str();
-    let article = if name.starts_with(['a', 'e', 'i', 'o', 'u']) {
-        "an"
-    } else {
-        "a"
-    };
-    format!("{article} {name}")
-}
-
-/// Reads one table a field at a time, adding an error for each mistake.
-struct Fields<'a> {
-    table: &'a toml::Table,
-    path: String,
-    errors: &'a mut Vec<PackError>,
-}
-
-/// Reads one value at `path`, returning `None` when it can't be used.
-type Reader<T> = fn(&Value, String, &mut Vec<PackError>) -> Option<T>;
-
-impl<'a> Fields<'a> {
-    /// Starts on `value`, which must be a table. Each field in it that isn't one of the `known` ones is an error, and
-    /// the known ones are still read.
-    fn read(
-        value: &'a Value,
-        path: String,
-        known: &[&str],
-        errors: &'a mut Vec<PackError>,
-    ) -> Option<Self> {
-        let Some(table) = value.as_table() else {
-            let message = format!("should be a table, but is {}", kind(value));
-            errors.push(PackError::new(MANIFEST, path, message));
-            return None;
-        };
-        let mut fields = Self {
-            table,
-            path,
-            errors,
-        };
-        for key in table.keys().filter(|key| !known.contains(&key.as_str())) {
-            let message = format!("isn't a field here. The fields are {}", known.join(", "));
-            fields.error(key, message);
-        }
-        Some(fields)
-    }
-
-    fn path_of(&self, key: &str) -> String {
-        if self.path.is_empty() {
-            key.to_owned()
-        } else {
-            format!("{}.{key}", self.path)
-        }
-    }
-
-    fn error(&mut self, key: &str, message: impl Into<String>) {
-        let path = self.path_of(key);
-        self.errors.push(PackError::new(MANIFEST, path, message));
-    }
-
-    /// A plain value, such as a number, some text or a list of numbers.
-    fn required<T: DeserializeOwned>(&mut self, key: &str) -> Option<T> {
-        let Some(value) = self.table.get(key) else {
-            self.error(key, "is missing");
-            return None;
-        };
-        match value.clone().try_into() {
-            Ok(read) => Some(read),
-            Err(error) => {
-                self.error(key, error.message());
-                None
-            }
-        }
-    }
-
-    /// `Some(None)` when the field isn't there, and `None` when it has a mistake.
-    fn optional<T: DeserializeOwned>(&mut self, key: &str) -> Option<Option<T>> {
-        if self.table.contains_key(key) {
-            self.required(key).map(Some)
-        } else {
-            Some(None)
-        }
-    }
-
-    fn required_with<T>(&mut self, key: &str, read: Reader<T>) -> Option<T> {
-        let Some(value) = self.table.get(key) else {
-            self.error(key, "is missing");
-            return None;
-        };
-        read(value, self.path_of(key), self.errors)
-    }
-
-    /// `None` when the field isn't there, or has a mistake.
-    fn optional_with<T>(&mut self, key: &str, read: Reader<T>) -> Option<T> {
-        let value = self.table.get(key)?;
-        read(value, self.path_of(key), self.errors)
-    }
-
-    /// A list of tables, keeping those that read cleanly. Empty when the field isn't there.
-    fn list_with<T>(&mut self, key: &str, read: Reader<T>) -> Vec<T> {
-        let path = self.path_of(key);
-        match self.table.get(key) {
-            None => Vec::new(),
-            Some(Value::Array(items)) => items
-                .iter()
-                .enumerate()
-                .filter_map(|(index, item)| read(item, format!("{path}[{index}]"), self.errors))
-                .collect(),
-            Some(other) => {
-                self.error(key, format!("should be a list, but is {}", kind(other)));
-                Vec::new()
-            }
-        }
-    }
-
-    /// A table of named entries, each read on its own. Empty when the field isn't there, and `None` when it isn't a
-    /// table, so nothing is judged against a list that was never read.
-    fn entries<T>(&mut self, key: &str, read: Reader<T>) -> Option<Entries<T>> {
-        let path = self.path_of(key);
-        match self.table.get(key) {
-            None => Some(BTreeMap::new()),
-            Some(Value::Table(entries)) => Some(
-                entries
-                    .iter()
-                    .map(|(name, entry)| {
-                        let path = format!("{path}.{name}");
-                        (name.clone(), read(entry, path, self.errors))
-                    })
-                    .collect(),
-            ),
-            Some(other) => {
-                self.error(key, format!("should be a table, but is {}", kind(other)));
-                None
-            }
-        }
-    }
-}
-
-fn read_size(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<Size> {
+fn read_size(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<Size> {
     let mut fields = Fields::read(value, path, &["width", "height"], errors)?;
     let width = fields.required("width");
     let height = fields.required("height");
@@ -260,14 +123,14 @@ fn read_size(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option
     })
 }
 
-fn read_point(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<Point> {
+fn read_point(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<Point> {
     let mut fields = Fields::read(value, path, &["x", "y"], errors)?;
     let x = fields.required("x");
     let y = fields.required("y");
     Some(Point { x: x?, y: y? })
 }
 
-fn read_body(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<BodyBox> {
+fn read_body(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<BodyBox> {
     let mut fields = Fields::read(value, path, &["x", "y", "width", "height"], errors)?;
     let x = fields.required("x");
     let y = fields.required("y");
@@ -281,7 +144,7 @@ fn read_body(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option
     })
 }
 
-fn read_shadow(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<ShadowShape> {
+fn read_shadow(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<ShadowShape> {
     let mut fields = Fields::read(value, path, &["width", "colour"], errors)?;
     let width = fields.required("width");
     let colour = fields.required("colour");
@@ -291,7 +154,7 @@ fn read_shadow(value: &Value, path: String, errors: &mut Vec<PackError>) -> Opti
     })
 }
 
-fn read_action(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<Action> {
+fn read_action(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<Action> {
     let mut fields = Fields::read(value, path, &["animation", "body"], errors)?;
     Some(Action {
         animation: fields.required("animation"),
@@ -299,18 +162,18 @@ fn read_action(value: &Value, path: String, errors: &mut Vec<PackError>) -> Opti
     })
 }
 
-fn read_situation(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<String> {
+fn read_situation(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<String> {
     match value.as_str() {
         Some(animation) => Some(animation.to_owned()),
         None => {
             let message = format!("should name an Animation, but is {}", kind(value));
-            errors.push(PackError::new(MANIFEST, path, message));
+            errors.push(Mistake::new(path, message));
             None
         }
     }
 }
 
-fn read_marker(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<MarkerShape> {
+fn read_marker(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<MarkerShape> {
     let mut fields = Fields::read(value, path, &["frame", "name"], errors)?;
     let frame = fields.required("frame");
     let name = fields.required("name");
@@ -320,7 +183,7 @@ fn read_marker(value: &Value, path: String, errors: &mut Vec<PackError>) -> Opti
     })
 }
 
-fn read_animation(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<Animation> {
+fn read_animation(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<Animation> {
     let known = ["sheet", "durations_ms", "markers"];
     let mut fields = Fields::read(value, path, &known, errors)?;
     Some(Animation {
@@ -330,7 +193,7 @@ fn read_animation(value: &Value, path: String, errors: &mut Vec<PackError>) -> O
     })
 }
 
-fn read_emote(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<Emote> {
+fn read_emote(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<Emote> {
     let known = ["sheet", "cell", "durations_ms", "mode"];
     let mut fields = Fields::read(value, path, &known, errors)?;
     Some(Emote {
@@ -341,13 +204,14 @@ fn read_emote(value: &Value, path: String, errors: &mut Vec<PackError>) -> Optio
     })
 }
 
-fn read_form(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option<Form> {
+fn read_form(value: &Value, path: String, errors: &mut Vec<Mistake>) -> Option<Form> {
     let known = [
         "cell",
         "anchor",
         "body",
         "default_action",
         "shadow",
+        "material",
         "actions",
         "situations",
         "animations",
@@ -359,6 +223,7 @@ fn read_form(value: &Value, path: String, errors: &mut Vec<PackError>) -> Option
         body: fields.required_with("body", read_body),
         default_action: fields.required("default_action"),
         shadow: fields.optional_with("shadow", read_shadow),
+        material: fields.optional_with("material", material::read),
         actions: fields.entries("actions", read_action),
         situations: fields.entries("situations", read_situation),
         animations: fields.entries("animations", read_animation),
@@ -398,6 +263,10 @@ pub fn parse(text: &str) -> Result<(Manifest, Vec<PackError>), Vec<PackError>> {
         forms: fields.entries("forms", read_form),
         emotes: fields.entries("emotes", read_emote),
     };
+    let errors = errors
+        .into_iter()
+        .map(|mistake| PackError::new(MANIFEST, mistake.field, mistake.message))
+        .collect();
     Ok((manifest, errors))
 }
 
@@ -546,6 +415,7 @@ fn form_definition(name: &str, form: &Form) -> FormDef {
                 (situation, animation_id(complete(animation)))
             })
             .collect(),
+        material: form.material.unwrap_or(DEFAULT_MATERIAL),
     }
 }
 
@@ -737,6 +607,66 @@ body = { x = 0, y = 0, width = 1, height = 1 }",
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("duplicate"), "{errors:?}");
         assert!(errors[0].message.contains("line 19"), "{errors:?}");
+    }
+
+    #[test]
+    fn given_a_material_with_an_unknown_field_and_a_missing_one_when_parsing_then_both_are_reported_with_where_they_are()
+     {
+        // Given: "grip" isn't a field, and friction is left out
+        let text = MINIMAL.replace(
+            "default_action = \"idle\"",
+            "default_action = \"idle\"
+material = { grip = 0.5, bounciness = 0.1 }",
+        );
+
+        // When
+        let errors = shape_errors(&text);
+
+        // Then
+        assert_eq!(
+            fields(&errors),
+            ["forms.blob.material.grip", "forms.blob.material.friction"]
+        );
+    }
+
+    #[test]
+    fn given_a_form_with_a_material_when_making_the_definition_then_the_form_has_that_material() {
+        // Given
+        let text = MINIMAL.replace(
+            "default_action = \"idle\"",
+            "default_action = \"idle\"
+material = { friction = 0.25, bounciness = 0.75 }",
+        );
+        let (manifest, errors) = parse(&text).expect("TOML in a known format");
+        assert_eq!(errors, []);
+
+        // When
+        let definition = to_definition(&manifest);
+
+        // Then
+        let material = definition.form(definition.starting_form).material;
+        assert_eq!(
+            material,
+            Material {
+                friction: 0.25,
+                bounciness: 0.75
+            }
+        );
+    }
+
+    #[test]
+    fn given_a_form_with_no_material_when_making_the_definition_then_the_form_has_the_default_one()
+    {
+        // Given
+        let (manifest, errors) = parse(MINIMAL).expect("TOML in a known format");
+        assert_eq!(errors, []);
+
+        // When
+        let definition = to_definition(&manifest);
+
+        // Then
+        let material = definition.form(definition.starting_form).material;
+        assert_eq!(material, DEFAULT_MATERIAL);
     }
 
     #[test]

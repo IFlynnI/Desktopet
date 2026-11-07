@@ -15,6 +15,7 @@ use pet_core::pack::{EmoteMode, Situation};
 use crate::PackError;
 use crate::images::Sheets;
 use crate::manifest::{BodyBox, Emote, Form, MANIFEST, Manifest, Size, parse_colour};
+use crate::material;
 
 fn error(field: impl Into<String>, message: impl Into<String>) -> PackError {
     PackError::new(MANIFEST, field, message)
@@ -130,6 +131,16 @@ fn check_form(
                 ),
             ));
         }
+    }
+
+    if let Some(material) = form.material {
+        let mut mistakes = Vec::new();
+        material::check(&format!("{path}.material"), material, &mut mistakes);
+        errors.extend(
+            mistakes
+                .into_iter()
+                .map(|mistake| error(mistake.field, mistake.message)),
+        );
     }
 
     let animations = form.animations.as_ref();
@@ -899,6 +910,67 @@ mod tests {
 
         // Then
         assert_eq!(fields(&errors), ["forms.hatchling.shadow.colour"]);
+    }
+
+    #[test]
+    fn given_material_values_below_0_and_above_1_when_checking_then_each_is_reported() {
+        // Given
+        let manifest = example_with(
+            "default_action = \"idle\"",
+            "default_action = \"idle\"
+material = { friction = -0.1, bounciness = 1.5 }",
+        );
+
+        // When
+        let errors = check(&manifest, &example_sheets());
+
+        // Then
+        assert_eq!(
+            fields(&errors),
+            [
+                "forms.hatchling.material.friction",
+                "forms.hatchling.material.bounciness"
+            ]
+        );
+    }
+
+    #[test]
+    fn given_material_values_that_are_not_numbers_you_can_count_to_when_checking_then_each_is_reported()
+     {
+        // Given: TOML has nan and inf, and both pass a plain "at least 0" test
+        let manifest = example_with(
+            "default_action = \"idle\"",
+            "default_action = \"idle\"
+material = { friction = nan, bounciness = inf }",
+        );
+
+        // When
+        let errors = check(&manifest, &example_sheets());
+
+        // Then
+        assert_eq!(
+            fields(&errors),
+            [
+                "forms.hatchling.material.friction",
+                "forms.hatchling.material.bounciness"
+            ]
+        );
+    }
+
+    #[test]
+    fn given_material_values_of_exactly_0_and_1_when_checking_then_they_pass() {
+        // Given: ice that bounces fully
+        let manifest = example_with(
+            "default_action = \"idle\"",
+            "default_action = \"idle\"
+material = { friction = 0, bounciness = 1 }",
+        );
+
+        // When
+        let errors = check(&manifest, &example_sheets());
+
+        // Then
+        assert_eq!(errors, []);
     }
 
     #[test]

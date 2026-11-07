@@ -1,5 +1,6 @@
 //! Desktop Pet: wires the engine to the platform.
 
+mod config;
 mod engine;
 mod pack;
 mod relaunch;
@@ -40,7 +41,17 @@ pub fn run(setup: impl FnOnce(&mut App)) -> AppExit {
     let manual_hide = Arc::new(AtomicBool::new(launch.manual_hide));
     let start = Presence::with_manual_hide(launch.manual_hide);
     let work_area = pet_platform::home_work_area();
-    let mut app = engine::app(work_area, start, manual_hide.clone(), pack, watching);
+    let home_monitor = pet_platform::home_monitor().unwrap_or(work_area);
+    let config_folder = pet_platform::config_folder();
+    let config = config::StartingConfig::load(config_folder.as_deref(), home_monitor);
+    let mut app = engine::app(
+        work_area,
+        start,
+        manual_hide.clone(),
+        pack,
+        watching,
+        config,
+    );
     setup(&mut app);
     let exit = app.run();
 

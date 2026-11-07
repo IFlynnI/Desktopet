@@ -98,7 +98,10 @@ fn draw(
     mut shadows: Query<ShadowDrawable, (With<ShadowOf>, Without<Pet>)>,
 ) {
     for (pet, shown, position, shadowed) in &pets {
-        let changed = shown.is_changed() || position.is_changed() || work_area.is_changed();
+        let changed = shown.is_changed()
+            || position.is_changed()
+            || work_area.is_changed()
+            || overlay.is_changed();
         if !changed {
             continue;
         }
@@ -142,7 +145,6 @@ mod tests {
     use bevy::time::TimeUpdateStrategy;
     use pet_core::geometry::Rect;
     use pet_core::pack::{AnimationId, FormId};
-    use pet_sim::SimPlugin;
 
     use super::*;
     use crate::engine::pack_assets::{PackAtStartup, add_starting_pack};
@@ -222,9 +224,7 @@ starting_form = \"hatchling\"
             }))
             .add_systems(Startup, add_starting_pack)
             .add_plugins((
-                SimPlugin {
-                    work_area: WORK_AREA,
-                },
+                crate::engine::test_support::sim_plugin(WORK_AREA),
                 PixelArtPlugin,
                 ShadowPlugin,
             ));

@@ -1,6 +1,7 @@
 # Proposal: architecture and code structure for roadmap item 4
 
-**Status:** agreed on 2026-11-06, in a design session over twelve rounds. Not yet built.
+**Status:** agreed on 2026-11-06, in a design session over twelve rounds. Slice 1 was built on
+2026-11-07; the other slices are not built yet.
 
 Item 4 is "The living Pet, in nine slices". It replaces the old items 4, 5 and 6, so that the owner can interact with
 the Pet and save it early, and can check each system by hand as it lands. The old item 7, the real character, becomes
@@ -73,7 +74,7 @@ flowchart TD
     shell -. "writes config files" .-> content
 ```
 
-- `pet-physics` has no dependencies at all. It owns the geometry types (`Point`, `Rect`) that `pet-core` has today in
+- `pet-physics` has no dependencies at all. It owns the geometry types (`Point`, `Rect`) that `pet-core` had in
   `geometry.rs`, and `pet-core` re-exports them, so existing code keeps compiling. `pet-core` then has no *external*
   dependencies, instead of none.
 - `pet-save` owns the file's own types and the chain of migrations. `pet-core` never reads or writes a file.
@@ -88,11 +89,11 @@ flowchart TD
 ```mermaid
 flowchart LR
     hit["Hit-test thread: cursor every 8 ms, over the Pet?"] -- "PointerSample" --> sense
-    overlay["Overlay window: button presses"] -- "buttons" --> sense
+    overlay["Overlay window: button presses, losing the mouse"] -- "buttons" --> sense
     shell["Shell thread: work area changed, tray, hotkey"] -- "ShellEvent" --> sense
     sense["Sense"] --> interpret["Interpret: Gestures"] --> react["React: memory, XP, Forms"]
-    react --> decide["Decide: the Mind"] --> act["Act: Actions, physics, clocks"]
-    act --> present["Present: renderer, Hit target"]
+    react --> decide["Decide: the Mind"] --> act["Act: Actions, Animation clocks"]
+    act --> resolve["Resolve: physics"] --> present["Present: renderer, Hit target"]
     react -- "ProgressChanged" --> writer["save writer thread"]
     decide -- "Why records" --> log["decision log file"]
     present -- "live data, 10 a second" --> pipe["pipe"] --> panelp["Pet panel"]
@@ -103,11 +104,13 @@ flowchart LR
 - **Input.** The Hit-test thread already polls the cursor every 8 ms. It now also passes each position on, with
   whether it's over the Pet's pixels. The Overlay window receives the button presses, because it only catches clicks
   over the Pet anyway. While a button is held, the Overlay keeps the mouse, so a fast drag can't drop the Pet when the
-  cursor slips off its edge. Sense reads all of it once a tick, and reads idle time (`GetLastInputInfo`) once a tick
-  too. There is no global mouse hook.
+  cursor slips off its edge. While the owner holds the Pet, the Overlay also keeps catching clicks wherever the cursor
+  is, because the Pet trails behind the cursor on the string. If Windows takes the mouse away, as Alt-Tab does in the
+  middle of a drag, the Overlay hears that too, and the drag ends. Sense reads all of it once a tick, and reads idle
+  time (`GetLastInputInfo`) once a tick too. There is no global mouse hook, and nothing polls the buttons.
 - **Work area.** The shell thread tells the engine when the work area changes, for example when the taskbar is
-  resized, moved or auto-hidden. The Overlay resizes, and the Pet falls onto the new Ground plane, or is pushed up
-  onto it.
+  resized, moved or auto-hidden. The Overlay, which covers the work area, moves and resizes with it, and the Pet falls
+  onto the new Ground plane, or is pushed up onto it.
 - **One way, as before, with one narrow exception.** The renderer only reads. The panel reads live data, edits files
   that hot-reload, and sends a small closed set of commands, which Sense reads like any other input. Nothing else
   flows back into the tick, apart from the Gestures the owner makes.
@@ -115,21 +118,27 @@ flowchart LR
 ## Physics (slice 1)
 
 Everything is measured in physical screen pixels, so a throw feels the same at 1× and at 4×. Bodies are upright
-rectangles that never rotate, so the Hit mask, the shadow and the Emotes are unaffected.
+rectangles that never rotate, so the Hit mask, the shadow and the Emotes are unaffected. Physics runs in the tick's
+Resolve phase, after Act has run the Actions and Animation clocks.
 
 - **Gravity, the release speed cap and ground friction** are app-wide numbers in `balance.toml`. The cap starts at about
   2,500 px/s; a hard swing reached about 2,700 px/s in the spike.
 - **The grab string.** While the owner holds the Pet, a short springy string with damping pulls the grab point
   towards the cursor. Moving slowly, the Pet trails. A quick flick stretches the string and catapults it. Circles swing
-  it around the cursor. Letting go keeps whatever speed it had. There is no throw/drop threshold. The string's length
-  and springiness are feel numbers in `balance.toml`. The Pet plays its `held` Situation while held.
-- **What it collides with.** The Home monitor's left, right and top edges, the Ground plane, and every Obstacle, on all
-  four sides, so the Pet can land on top of one. A swept test stops a fast Pet passing through a thin Obstacle.
+  it around the cursor. Letting go keeps whatever speed it had. There is no throw/drop threshold. The string's length,
+  springiness, damping and swing drag are feel numbers in `balance.toml`, and values outside the string's stability
+  limits are rejected. The Pet plays its `held` Situation while held.
+- **What it collides with.** The work area's left, right and top edges, the Ground plane at its bottom, and every
+  Obstacle, on all four sides, so the Pet can land on top of one. A swept test stops a fast Pet passing through a thin
+  Obstacle. Obstacles are placed from the Home monitor's top-left corner as it was at startup, so if the monitors are
+  rearranged later, they stay put until slice 5's hot reload reads `obstacles.toml` again.
 - **Materials.** Each surface and each Body has a Material: friction and bounciness. A Form gives its Body one. An
-  Action or a Situation can override it while it runs. When two Materials touch, friction is averaged and the bouncier
-  one wins, unless an override says otherwise. An override always wins, so a landing that never bounces works even on
-  a bouncy floor.
-- **Landing.** Every landing plays `landing`. A landing above a speed records an "impact" event that memory and XP use.
+  Action or a Situation can override it while it runs. The physics supports the override from slice 1, and Actions
+  set it from slice 4. When two Materials touch, friction is averaged and the bouncier one wins, unless an override
+  says otherwise. An override always wins, so a landing that never bounces works even on a bouncy floor.
+- **Landing.** Every landing plays `landing`. Every landing, except a held Pet being set down, sends `Landed` with its
+  speed. A landing above a set speed records an "impact" event that memory and XP use. Slice 5, its first user, sets
+  that speed.
 - **Measured** in [physics-rotation.md](../research/physics-rotation.md), headless: 0.2 µs a tick for one Pet, 190 µs
   for 1,000 boxes. Results were bit-identical across runs and processes, on this one machine only.
 
@@ -226,7 +235,9 @@ annoyed = { reaction = "annoyed" }
 Files the owner may edit live in `%LOCALAPPDATA%\DesktopPet\config\`, a folder of their own, so the log's constant
 writes never wake the watcher. The Pet panel edits the same files, so editing by hand and editing in the panel go
 through the same validation and the same error messages. Each file loads completely or not at all. An invalid edit
-keeps the old values and logs every error.
+keeps the old values and logs every error. The default values live in the code, and the files override them. Until
+slice 5's hot reload, `balance.toml` and `obstacles.toml` are read once at startup, and a missing or broken file gives
+the defaults.
 
 ```toml
 # balance.toml: every feel number and the XP matrix. These are starting values, tuned by hand.
@@ -234,7 +245,8 @@ keeps the old values and logs every error.
 gravity = 3000                 # px/s²
 max_release_speed = 2500       # px/s
 ground_friction = 0.8
-grab = { length = 24, stiffness = 400, damping = 30 }
+# The grab string. Its numbers must stay within the string's stability limits, or the file is rejected.
+grab = { length = 24, stiffness = 400, damping = 30, swing_drag = 4 }
 
 [xp]
 level_curve = "100 * level^1.5"   # total XP for each Level; data, shown in the panel
@@ -391,9 +403,14 @@ New files are marked **new**. Names are proposals and may change while building.
 crates/
   pet-physics/                 new crate, no dependencies
     src/geometry.rs            Point and Rect, moved from pet-core
-    src/body.rs                Body, Motion, Material, combine rule and overrides
-    src/world.rs               Ground plane, screen edges, Obstacles; step and swept collision
-    src/grab.rs                the springy grab string
+    src/vector.rs              Vec2
+    src/material.rs            Material, MaterialOverride, the combine rule
+    src/body.rs                Body, its Extent, and the release speed cap
+    src/world.rs               World and Obstacle: the work area's edges, the Ground plane, Obstacles
+    src/grab.rs                the springy grab string: GrabString, Held, CursorSample
+    src/step.rs                step: one tick in a few substeps, and Landing
+    src/collide.rs             private: the swept test, bouncing and sliding, pushing out
+    src/tuning.rs              Tuning: gravity, the release speed cap, ground friction, the grab string
   pet-core/src/
     gesture.rs                 new: poke, drag, stroke, Marker, poke combos
     action.rs                  new: timing and effects
@@ -409,19 +426,22 @@ crates/
     manifest.rs, validate.rs   the new Pack fields and rules
   pet-sim/src/
     input.rs, gestures.rs      new: Sense and Interpret
-    motion.rs                  new: physics in Act, Situations, Landed
+    motion.rs                  new: physics in Resolve, Situations, Landed
     reactions.rs, progress.rs  new: slices 3 to 5
     mind.rs, memory.rs, learning.rs   new: slices 7 and 8
   pet-platform/src/windows/
-    pointer.rs                 new: cursor samples and buttons, keeping the mouse during a drag
-    work_area.rs               new: "work area changed" from the shell thread
+    pointer.rs                 new: the cursor samples, and whether the owner is holding the Pet
+    work_area.rs               new: "work area changed", heard by a hidden top-level window on the shell thread
     idle.rs                    new: GetLastInputInfo
     pipe.rs                    new: the panel's named pipe; its message types come from pet-protocol
     folder_watch.rs            gains file-level checks for the config folder
-  pet-app/src/engine/
-    watched.rs                 new: the general hot reload, replacing Pack-only code in hot_reload.rs
-    obstacle_view.rs           new: faint outlines
-    context_menu.rs            new: the right-click menu
+  pet-app/src/
+    config.rs                  new: reads balance.toml and obstacles.toml at startup; logs errors, keeps defaults
+    engine/watched.rs          new: the general hot reload, replacing Pack-only code in hot_reload.rs
+    engine/obstacle_view.rs    new: faint outlines
+    engine/pointer.rs          new: passes the cursor samples and buttons to the simulation
+    engine/work_area.rs        new: keeps the Overlay on the work area
+    engine/context_menu.rs     new: the right-click menu
 panel/                         new: the Pet panel, Tauri 2 + React, built with pnpm
 ```
 
@@ -429,8 +449,8 @@ panel/                         new: the Pet panel, Tauri 2 + React, built with p
 
 | Item | Purpose |
 |---|---|
-| `pet_physics::{Body, Material, Obstacle, Grab, step}` | One physics step for every Body, pure and deterministic |
-| `pet_core::gesture::Recogniser` | Pointer samples and buttons in, Gestures out. Pure |
+| `pet_physics::{Body, Material, Obstacle, GrabString, Held, Tuning, step}` | One physics step for every Body, pure and deterministic |
+| `pet_core::gesture::Recogniser` | Button presses and releases, and losing the mouse, in; Gestures out. Pure |
 | `pet_core::form_graph`, `pet_core::xp` | Evolutions and their conditions; XP rules, the level curve, the Ledger |
 | `pet_core::mind::decide(...) -> (ActionId, Why)` | One decision with its causes |
 | `pet_core::memory::MemoryEvent` | The one way into memory, from any source |
@@ -444,11 +464,11 @@ panel/                         new: the Pet panel, Tauri 2 + React, built with p
 
 | Slice | Adds | Modules | Done when | Try it by hand |
 |---|---|---|---|---|
-| 1. Ground + throw | Physics, the Ground plane, work-area changes, Obstacles, Materials, the grab string, pointer input | `pet-physics`, `pet-core/gesture` (drag), `pet-sim/input`, `motion`, `pet-platform/pointer`, `work_area` | The Pet falls, lands and stays inside the Home monitor; a fast throw never passes through an Obstacle; a work-area change moves it onto the new ground | Grab, swing and flick the egg against a wall from `obstacles.toml`, and watch it bounce and land |
+| 1. Ground + throw | Physics, the Ground plane, work-area changes, Obstacles, Materials, the grab string, pointer input | `pet-physics`; `pet-core/gesture` (drag); `pet-sim/input`, `motion`; `pet-content/config`; `pet-app/config`, `engine/obstacle_view`, `pointer`, `work_area`; `pet-platform/pointer`, `work_area` | The Pet falls, lands and stays inside the work area; a fast throw never passes through an Obstacle; a work-area change moves it onto the new ground | Grab, swing and flick the egg against a wall from `obstacles.toml`, and watch it bounce and land |
 | 2. Save | `pet-save`, backups, migrations, restoring position and Form | `pet-save`, `pet-app` startup | A restart restores the position; a corrupt save falls back to a backup; every copy failing starts a fresh egg and keeps the files | Throw it, quit, relaunch, and it's where you left it |
 | 3. Petting + hatching | Stroke recognition, the Form graph, FormProgress | `gesture` (stroke), `form_graph`, `pet-sim/progress` | Strokes are recognised; enough petting hatches the egg; the Form is saved; a reload no longer moves a grown Pet back | Pet the egg until it hatches, relaunch, and it's still a hatchling |
 | 4. Reactions | Action timing and effects, per-Action Body, reactions, poke, `EmoteRequest` naming its Actor | `action`, `pet-sim/reactions`, renderer, Emote view | A poke and a stroke play their Actions; Emotes use the running Action's Body | Poke it, pet it, hold it |
-| 5. XP + Level | The XP matrix, the level curve, the Ledger, the right-click menu, general hot reload | `xp`, `pet-content/config`, `engine/watched`, `context_menu` | XP follows the rules in `balance.toml`; an edit applies live; the menu shows Level and Evolve when ready; the Pack's tests pass on the new hot reload | Play with it, watch the Level rise, tune XP live |
+| 5. XP + Level | The XP matrix, the level curve, the Ledger, the right-click menu, general hot reload | `xp`, `pet-content/config`, `engine/watched`, `context_menu` | XP follows the rules in `balance.toml`; an edit to it or to `obstacles.toml` applies live; the landing speed that counts as an impact is chosen; the menu shows Level and Evolve when ready; the Pack's tests pass on the new hot reload | Play with it, watch the Level rise, tune XP live |
 | 6. Pet panel | The Tauri program, the pipe with live data and commands, Progress and Balance tabs | `panel/`, `pet-protocol`, `pet-platform/pipe` | The panel opens from the tray, shows live XP, edits `balance.toml`, and Evolve from the panel works; closing it leaves the Pet's RAM where it was | Open the panel, change a balance value, evolve from it |
 | 7. The Mind | Drives, traits, the utility tree, decisions, choices while held or falling, Emote reasons, Why records, the decision log, the Mind tab | `drives`, `mind/`, `pet-sim/mind` | The Pet chooses idle, walk, sit and sleep by itself; every choice has a Why; a hot reload of the Mind applies | Watch it choose, and read why in the panel |
 | 8. Senses + memory | Cursor, idle, time of day, Rhythm; look, follow, pounce, poke combos; memory; Links, Experiments, the Marker | `memory/`, `learning/`, `pet-sim/memory`, `learning`, `pet-platform/idle` | The Pet looks at and follows the cursor; memory and Links change what it does; Experiments show ❓ and replay from the seed; the dormant-cap test passes | Reward something it does, see it do that more, and see why |

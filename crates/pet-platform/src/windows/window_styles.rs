@@ -10,14 +10,14 @@ use windows::core::{PCWSTR, w};
 /// The window property the shell reads to learn that a window is never fullscreen.
 pub const NOT_FULLSCREEN_PROPERTY: PCWSTR = w!("NonRudeHWND");
 
-/// Layered, a tool window (no taskbar or Alt-Tab) that never takes focus, and transparent to clicks unless
-/// the cursor is on the Pet.
+/// Layered, a tool window (no taskbar or Alt-Tab) that never takes focus, and transparent to clicks unless it
+/// should catch them: when the cursor is on the Pet, or while the owner holds it.
 ///
 /// Topmost isn't here: Windows only changes it through `SetWindowPos`, which winit calls for us.
-fn wanted_ex_style(current: u32, cursor_on_pet: bool) -> u32 {
+fn wanted_ex_style(current: u32, catch_clicks: bool) -> u32 {
     let wanted =
         (current | WS_EX_LAYERED.0 | WS_EX_TOOLWINDOW.0 | WS_EX_NOACTIVATE.0) & !WS_EX_APPWINDOW.0;
-    if cursor_on_pet {
+    if catch_clicks {
         wanted & !WS_EX_TRANSPARENT.0
     } else {
         wanted | WS_EX_TRANSPARENT.0
@@ -25,10 +25,10 @@ fn wanted_ex_style(current: u32, cursor_on_pet: bool) -> u32 {
 }
 
 /// Brings the Overlay's styles in line. winit overwrites them at startup, so this runs on every poll.
-pub fn apply(hwnd: HWND, cursor_on_pet: bool) {
+pub fn apply(hwnd: HWND, catch_clicks: bool) {
     // SAFETY: takes plain values. A window that's gone returns 0 and the write below fails harmlessly.
     let current = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) } as u32;
-    let wanted = wanted_ex_style(current, cursor_on_pet);
+    let wanted = wanted_ex_style(current, catch_clicks);
     if wanted != current {
         // SAFETY: takes plain values, and these are style bits rather than a pointer.
         unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, wanted as isize) };

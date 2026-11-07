@@ -25,9 +25,12 @@ pub struct ManualHideAtExit(pub Arc<AtomicBool>);
 #[derive(Resource)]
 pub struct ShellEvents(pub Mutex<Receiver<ShellEvent>>);
 
+/// Acts on what the shell has sent. A new work area goes to the simulation, which moves the Pet onto its Ground plane,
+/// and `work_area::follow` moves the Overlay to match.
 pub fn drain_shell_events(
     events: Res<ShellEvents>,
     mut presence: ResMut<CurrentPresence>,
+    mut work_area: Option<ResMut<pet_sim::WorkArea>>,
     mut exit: MessageWriter<AppExit>,
 ) {
     let Ok(events) = events.0.lock() else { return };
@@ -39,6 +42,11 @@ pub fn drain_shell_events(
                 exit.write(AppExit::Success);
             }
             ShellEvent::FullscreenChanged(fullscreen) => presence.set_auto_hide(fullscreen),
+            ShellEvent::WorkAreaChanged(rect) => {
+                if let Some(work_area) = work_area.as_mut() {
+                    work_area.set_if_neq(pet_sim::WorkArea(rect));
+                }
+            }
         }
     }
 }
@@ -157,6 +165,29 @@ mod tests {
                 UpdateMode::Continuous => panic!("the engine never runs continuously"),
             }
         }
+    }
+
+    #[test]
+    fn given_the_simulation_when_the_shell_says_the_work_area_changed_then_the_simulation_has_the_new_one()
+     {
+        // Given
+        let mut engine = Engine::starting_with(Presence::default());
+        let old = pet_core::geometry::Rect {
+            left: 0,
+            top: 0,
+            right: 1920,
+            bottom: 1032,
+        };
+        let new = pet_core::geometry::Rect { bottom: 980, ..old };
+        engine.app.insert_resource(pet_sim::WorkArea(old));
+        engine.app.update();
+
+        // When
+        engine.shell.send(ShellEvent::WorkAreaChanged(new)).unwrap();
+        engine.app.update();
+
+        // Then
+        assert_eq!(engine.app.world().resource::<pet_sim::WorkArea>().0, new);
     }
 
     #[test]

@@ -504,3 +504,29 @@ fn given_the_cursor_is_somewhere_else_when_checking_it_then_the_run_stops_with_a
     // When / Then
     assert_cursor_is_at(expected);
 }
+
+#[test]
+fn given_a_broken_balance_file_when_the_app_starts_then_the_pet_still_appears_and_the_log_names_each_error()
+ {
+    // Given
+    let balance = "[physics]
+gravity = -5
+wobble = 1
+";
+
+    // When
+    let pet = PetProcess::launch_with_config(Packs::Placeholder, &[("balance.toml", balance)]);
+
+    // Then: the Overlay showed, so the app started with the default balance
+    let data = pet.data();
+    assert!(
+        wait_until(Duration::from_secs(5), || data
+            .log()
+            .contains("balance.toml")),
+        "the log never mentioned balance.toml: {}",
+        data.log()
+    );
+    let log = data.log();
+    assert!(log.contains("gravity"), "{log}");
+    assert!(log.contains("wobble"), "{log}");
+}

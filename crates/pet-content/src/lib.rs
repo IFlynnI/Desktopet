@@ -1,8 +1,12 @@
-//! Reads and checks Packs. A Pack is a folder with a `manifest.toml` and one PNG strip per Animation. It loads
-//! completely or not at all: either every check passes, or the caller gets every error at once.
+//! Reads and checks Packs, and the files in the owner's config folder. A Pack is a folder with a `manifest.toml` and one
+//! PNG strip per Animation. A Pack and each config file load completely or not at all: either every check passes, or
+//! the caller gets every error at once.
 
+mod config;
+mod fields;
 mod images;
 mod manifest;
+mod material;
 mod validate;
 
 use std::fmt;
@@ -12,6 +16,10 @@ use std::path::{Path, PathBuf};
 
 use pet_core::pack::PackDefinition;
 
+pub use config::{
+    BALANCE_FILE, Balance, ConfigError, DEFAULT_OBSTACLE_MATERIAL, OBSTACLES_FILE, ObstacleDef,
+    load_balance, load_obstacles,
+};
 pub use images::{FramePixels, PackPixels};
 
 /// One thing wrong with a Pack, and where.
@@ -40,11 +48,16 @@ impl PackError {
 
 impl fmt::Display for PackError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.field.is_empty() {
-            write!(f, "{}: {}", self.file, self.message)
-        } else {
-            write!(f, "{}: {}: {}", self.file, self.field, self.message)
-        }
+        write_error(f, &self.file, &self.field, &self.message)
+    }
+}
+
+/// An error as the log and `pet-pack` show it: `file: field: message`, or `file: message` about the whole file.
+fn write_error(f: &mut fmt::Formatter<'_>, file: &str, field: &str, message: &str) -> fmt::Result {
+    if field.is_empty() {
+        write!(f, "{file}: {message}")
+    } else {
+        write!(f, "{file}: {field}: {message}")
     }
 }
 

@@ -11,6 +11,7 @@ publish = false
 [workspace.dependencies]
 pet-content = { path = "crates/pet-content" }
 pet-core = { path = "crates/pet-core" }
+pet-physics = { path = "crates/pet-physics" }
 pet-platform = { path = "crates/pet-platform" }
 pet-sim = { path = "crates/pet-sim" }
 # Pinned exactly: Bevy ships breaking releases, so upgrades are deliberate (PRD §7.1).

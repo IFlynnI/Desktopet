@@ -27,6 +27,34 @@ To check a Pack the way the app does, listing every error:
 cargo run -p pet-content --bin pet-pack -- validate content/placeholder
 ```
 
+Grab the Pet with the left button to pick it up. It hangs from where you grabbed it, swings as you move, and keeps
+its speed when you let go, so a flick throws it. It bounces off the edges of the work area and lands on the taskbar.
+
+The placeholder has no art for being held, falling or landing. To see those, use Brim, the first real character,
+whose egg has all three. The app picks the first Pack by folder name, and `firstborn` comes before `placeholder`:
+
+```bash
+cp -r content/firstborn "$LOCALAPPDATA/DesktopPet/packs/"
+```
+
+The feel numbers and walls live in `%LOCALAPPDATA%\DesktopPet\config`. Without those files the Pet uses the defaults
+and there are no walls. For example, on a 1920 x 1080 screen, a bouncy wall 400 pixels left of the right edge, a
+slippery shelf to land on in the middle, and gravity a little lower:
+
+```bash
+mkdir -p "$LOCALAPPDATA/DesktopPet/config"
+printf '[[obstacle]]\nrect = { x = 1480, y = 500, width = 40, height = 580 }\nmaterial = { friction = 0.4, bounciness = 0.7 }\n\n[[obstacle]]\nrect = { x = 800, y = 700, width = 320, height = 20 }\nmaterial = { friction = 0.05, bounciness = 0.0 }\n' > "$LOCALAPPDATA/DesktopPet/config/obstacles.toml"
+printf '[physics]\ngravity = 2500\n' > "$LOCALAPPDATA/DesktopPet/config/balance.toml"
+```
+
+Fling the egg at the wall and it bounces back; drop it on the shelf and it slides along. How bouncy a hit is takes
+the bouncier of the two, and how grippy is the average of both, so the egg, a little bouncy itself, still bounces
+off a wall that isn't.
+
+Obstacles are drawn as faint outlines, and clicks go through them. Positions are in physical pixels from the Home
+monitor's top-left corner. The files are read at startup, so restart the Pet after editing them; a file with mistakes
+is ignored and the log lists each one.
+
 Press Ctrl+Alt+P or left-click the tray icon to hide or show the Pet. To stop it, right-click the tray icon and
 choose Quit.
 

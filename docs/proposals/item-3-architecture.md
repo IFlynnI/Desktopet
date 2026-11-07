@@ -171,6 +171,8 @@ and keeps the tray icon so you can still quit. `pet-pack validate <folder>` prin
      from 0 to the width and y from 0 to the height.
    - Every Body has a positive width and height.
    - A per-Action Body belongs to an Action that exists.
+   - A Form's `material`, which is optional, gives both a `friction` and a `bounciness`, each between 0 and 1. Item 4
+     added it.
 8. **Hit masks.**
    - Every Frame has at least one pixel at or above the threshold, or the Pet couldn't be clicked.
    - The threshold is between 1 and 255.

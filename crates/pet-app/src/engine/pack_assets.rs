@@ -151,7 +151,6 @@ mod tests {
     use bevy::ecs::schedule::SingleThreadedExecutor;
     use bevy::time::TimeUpdateStrategy;
     use pet_core::geometry::Rect;
-    use pet_sim::SimPlugin;
 
     use super::*;
     use crate::engine::test_support::{
@@ -270,14 +269,12 @@ mode = "one-shot"
             pack,
         });
         app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::ZERO))
-            .add_plugins(SimPlugin {
-                work_area: Rect {
-                    left: 0,
-                    top: 0,
-                    right: 1000,
-                    bottom: 800,
-                },
-            });
+            .add_plugins(crate::engine::test_support::sim_plugin(Rect {
+                left: 0,
+                top: 0,
+                right: 1000,
+                bottom: 800,
+            }));
         app.edit_schedule(Startup, |schedule| {
             schedule.set_executor(SingleThreadedExecutor::new());
         });

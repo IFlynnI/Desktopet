@@ -76,6 +76,7 @@ mod tests {
             }],
             animations: Vec::new(),
             situations: Vec::new(),
+            material: crate::pack::DEFAULT_MATERIAL,
         }
     }
 

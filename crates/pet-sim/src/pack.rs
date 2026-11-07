@@ -9,6 +9,7 @@ use pet_core::placement;
 
 use crate::clock::{AnimationClock, ShownFrame};
 use crate::emotes::{EmoteClock, EmoteRequest, ShownEmote};
+use crate::motion::{self, InSituation, Motion, Scale};
 use crate::{Faces, Pet, Position, WorkArea};
 
 /// The Definition of the Pack in use, shared read-only with whoever else needs it.
@@ -20,15 +21,23 @@ pub struct CurrentPack(pub Arc<PackDefinition>);
 #[derive(Message, Clone, Debug)]
 pub struct PackReloaded;
 
-/// When a Pack arrives, the Pet appears at home in the starting Form, playing its default Action on a loop, with no
-/// Emote.
-pub(crate) fn spawn_pet(mut commands: Commands, pack: Res<CurrentPack>, work_area: Res<WorkArea>) {
+/// When a Pack arrives, the Pet appears at home in the starting Form, standing on the Ground plane and playing its
+/// default Action on a loop, with no Emote.
+pub(crate) fn spawn_pet(
+    mut commands: Commands,
+    pack: Res<CurrentPack>,
+    work_area: Res<WorkArea>,
+    scale: Res<Scale>,
+) {
     let definition = &pack.0;
     let form = definition.starting_form;
     let animation = definition.form(form).default_animation();
+    let home = placement::home(work_area.0);
     commands.spawn((
         Pet,
-        Position(placement::home(work_area.0)),
+        Position(home),
+        Motion(motion::body_of(definition.form(form), home, *scale)),
+        InSituation::default(),
         Faces::default(),
         AnimationClock {
             form,
@@ -49,7 +58,8 @@ pub(crate) fn spawn_pet(mut commands: Commands, pack: Res<CurrentPack>, work_are
 /// Swaps in an edited Pack's Definition. It all happens here, at once, so nothing can read the new Pack with the old
 /// one's numbers: call it from an exclusive system that runs before the ticks and the renderer.
 ///
-/// Each Actor stays where it is and faces the same way. The Pet, while it's in the starting Form, takes the new Pack's
+/// Each Actor stays where it is, moving as it was, and faces the same way. Its physics box and Material become its
+/// Form's in the new Pack, and its Situation ends, since the Animation that showed it does. The Pet, while it's in the starting Form, takes the new Pack's
 /// starting Form, so an author who changes `starting_form` sees it. Any other Actor keeps its Form if the new Pack has
 /// one of that name, since numbers come from a Pack's order and can change with any edit, or else takes the new
 /// starting Form. Its clock starts again on that Form's default Action, showing its first Frame before any time
@@ -67,14 +77,19 @@ pub fn replace_pack(world: &mut World, definition: Arc<PackDefinition>) {
         .map(|pack| pack.0.clone());
     match old {
         Some(old) => {
+            let scale = *world.resource::<Scale>();
             let mut actors = world.query::<(
                 &mut ShownFrame,
                 Option<&mut AnimationClock>,
                 Option<&mut EmoteClock>,
                 Option<&mut ShownEmote>,
+                Option<&mut Motion>,
+                Option<&mut InSituation>,
                 Has<Pet>,
             )>();
-            for (mut shown, clock, emote_clock, shown_emote, is_pet) in actors.iter_mut(world) {
+            for (mut shown, clock, emote_clock, shown_emote, body, situation, is_pet) in
+                actors.iter_mut(world)
+            {
                 let form = if is_pet {
                     pet_form_after_edit(&old, &definition, shown.form)
                 } else {
@@ -99,6 +114,13 @@ pub fn replace_pack(world: &mut World, definition: Arc<PackDefinition>) {
                 }
                 if let Some(mut shown_emote) = shown_emote {
                     *shown_emote = ShownEmote(None);
+                }
+                if let Some(mut body) = body {
+                    body.0.extent = motion::extent(definition.form(form), scale);
+                    body.0.material = definition.form(form).material;
+                }
+                if let Some(mut situation) = situation {
+                    *situation = InSituation(None);
                 }
             }
             world.resource_mut::<CurrentPack>().0 = definition;

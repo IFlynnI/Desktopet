@@ -363,6 +363,15 @@ impl TestData {
         None
     }
 
+    /// Writes each `(name, text)` into the app's config folder.
+    fn add_config(&self, files: &[(&str, &str)]) {
+        let folder = self.0.join("DesktopPet").join("config");
+        fs::create_dir_all(&folder).expect("make the config folder");
+        for (name, text) in files {
+            fs::write(folder.join(name), text).expect("write a config file");
+        }
+    }
+
     fn record_path(&self) -> PathBuf {
         self.0.join("record.txt")
     }
@@ -406,7 +415,16 @@ impl PetProcess {
 
     /// The app with `packs` in its folders. With no usable Pack the Overlay still shows, with nothing on it.
     pub fn launch_with(packs: Packs) -> Self {
-        Self::launch_from(Command::new(env!("CARGO_BIN_EXE_desktop-pet")), packs)
+        Self::launch_with_config(packs, &[])
+    }
+
+    /// The app with `packs`, and each `(name, text)` of `config` as a file in its config folder.
+    pub fn launch_with_config(packs: Packs, config: &[(&str, &str)]) -> Self {
+        Self::launch_from(
+            Command::new(env!("CARGO_BIN_EXE_desktop-pet")),
+            packs,
+            config,
+        )
     }
 
     /// `failing-app`, which is the real app with a failure built in.
@@ -417,13 +435,13 @@ impl PetProcess {
             FailWhen::Hidden => "hidden",
         };
         command.env("FAILING_APP_WHEN", when);
-        Self::launch_from(command, Packs::Placeholder)
+        Self::launch_from(command, Packs::Placeholder, &[])
     }
 
     /// For a launch that should stay Hidden: this returns once the app is running, and fails if the Overlay ever shows.
     pub fn launch_kept_hidden() -> Self {
         let command = Command::new(env!("CARGO_BIN_EXE_desktop-pet"));
-        let process = Self::start_from(command, Packs::Placeholder);
+        let process = Self::start_from(command, Packs::Placeholder, &[]);
         let pid = process.child.id();
         let start = Instant::now();
         let mut running_since = None;
@@ -454,17 +472,18 @@ impl PetProcess {
         })
     }
 
-    fn launch_from(command: Command, packs: Packs) -> Self {
-        let mut process = Self::start_from(command, packs);
+    fn launch_from(command: Command, packs: Packs, config: &[(&str, &str)]) -> Self {
+        let mut process = Self::start_from(command, packs, config);
         let appeared = process.find_overlay(LAUNCH_TIMEOUT);
         assert!(appeared, "the Overlay never became visible");
         process
     }
 
-    fn start_from(mut command: Command, packs: Packs) -> Self {
+    fn start_from(mut command: Command, packs: Packs, config: &[(&str, &str)]) -> Self {
         assert_no_pet_is_running();
         let startup_list = StartupListGuard::new();
         let data = Arc::new(TestData::new());
+        data.add_config(config);
         // The owner's own override mustn't reach the app under test.
         command.env_remove("DESKTOP_PET_PACKS");
         if let Some(packs_folder) = data.add_packs(packs) {
@@ -889,6 +908,65 @@ pub fn window_under_cursor_at(point: Point, settle: Duration) -> HWND {
     };
     // SAFETY: both calls take plain values.
     unsafe { GetAncestor(WindowFromPoint(point), GA_ROOT) }
+}
+
+/// The real left button, held down by a test. It goes up when this is released or dropped, so a test that fails
+/// mid-drag never leaves the person's button held down.
+pub struct LeftButtonDown {
+    released: bool,
+}
+
+impl LeftButtonDown {
+    /// Lets the button go wherever the cursor is. The Overlay keeps the mouse while the button is down, so this
+    /// reaches the Pet even off its pixels.
+    pub fn release(mut self) {
+        self.released = true;
+        send_mouse(MOUSEEVENTF_LEFTUP);
+    }
+}
+
+impl Drop for LeftButtonDown {
+    fn drop(&mut self) {
+        if !self.released {
+            send_mouse(MOUSEEVENTF_LEFTUP);
+        }
+    }
+}
+
+/// Puts the real left button down at `point`, which must be over the Pet's Overlay, so a broken test can never press
+/// on an app the person has open.
+#[must_use = "the button goes up again when this is dropped"]
+pub fn press_left_on(point: Point, overlay: HWND) -> LeftButtonDown {
+    let under = window_under_cursor_at(point, SETTLE);
+    assert_eq!(
+        under, overlay,
+        "refusing to press at {point:?}: not over the Pet"
+    );
+    send_mouse(MOUSEEVENTF_LEFTDOWN);
+    LeftButtonDown { released: false }
+}
+
+/// Moves the real cursor along a straight line to `to` in `steps`, `every` apart, as a hand would, and checks nobody
+/// else moved it.
+pub fn drag_cursor_to(to: Point, steps: i32, every: Duration) {
+    let from = cursor_position();
+    for step in 1..=steps {
+        let point = Point {
+            x: from.x + (to.x - from.x) * step / steps,
+            y: from.y + (to.y - from.y) * step / steps,
+        };
+        // SAFETY: takes plain values.
+        unsafe { SetCursorPos(point.x, point.y) }.expect("move the cursor");
+        thread::sleep(every);
+        assert_cursor_is_at(point);
+    }
+}
+
+fn send_mouse(flags: MOUSE_EVENT_FLAGS) {
+    let inputs = [mouse_button(flags)];
+    // SAFETY: `inputs` is a live array and the size is that of its element type.
+    let sent = unsafe { SendInput(&inputs, size_of::<INPUT>() as i32) };
+    assert_eq!(sent, 1, "Windows rejected the button");
 }
 
 /// A real left click. It refuses to fire unless `point` is over one of `allowed`, so a broken test can

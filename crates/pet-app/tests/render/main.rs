@@ -10,8 +10,9 @@ use std::path::{Path, PathBuf};
 use bevy::prelude::With;
 use pet_app::PackEdited;
 use pet_content::LoadedPack;
-use pet_core::geometry::Point;
+use pet_core::geometry::{Point, Rect};
 use pet_core::pack::EmoteId;
+use pet_core::physics::{Material, Obstacle};
 use pet_core::placement::Facing;
 use pet_sim::{EmoteRequest, Faces, Pet, Position, ShownFrame};
 
@@ -379,4 +380,45 @@ fn given_a_pet_still_in_its_starting_form_when_an_edit_changes_the_starting_form
     // Then: a "hatchling" on the first Frame of its default Action, with its top-left at (18, 16)
     assert_drawn(&before, &drawn_at(&fixture::egg(), 16, 18));
     assert_drawn(&after, &drawn_at(&fixture::frame(0), 18, 16));
+}
+
+#[test]
+fn given_an_obstacle_when_drawn_then_its_outline_shows_inside_its_edges_and_nothing_else_is_drawn_but_the_pet()
+ {
+    // Given: a 100 x 40 work area, the Pet at the bottom centre, and a wall left of it with room inside for a hole
+    let folder = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/placeholder");
+    let pack = pet_content::load(&folder).unwrap_or_else(|errors| panic!("{errors:?}"));
+    let wall = Rect {
+        left: 4,
+        top: 10,
+        right: 14,
+        bottom: 40,
+    };
+    let obstacle = Obstacle {
+        rect: wall,
+        material: Material {
+            friction: 0.5,
+            bounciness: 0.0,
+        },
+    };
+    let mut offscreen = Offscreen::start_with(folder, pack, 100, 40, vec![obstacle]);
+
+    // When
+    let got = offscreen.capture();
+
+    // Then: every pixel of the wall's 2-pixel rim is drawn, its inside and everything else left of the Pet is clear
+    let pet_left = 50 - 24;
+    for y in 0..40 {
+        for x in 0..pet_left {
+            let inside_wall =
+                (wall.left..wall.right).contains(&x) && (wall.top..wall.bottom).contains(&y);
+            let rim = inside_wall
+                && (x < wall.left + 2
+                    || x >= wall.right - 2
+                    || y < wall.top + 2
+                    || y >= wall.bottom - 2);
+            let drawn = got.pixel(x as u32, y as u32) != [0; 4];
+            assert_eq!(drawn, rim, "({x}, {y})");
+        }
+    }
 }

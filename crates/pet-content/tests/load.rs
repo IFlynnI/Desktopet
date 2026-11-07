@@ -1,10 +1,13 @@
 //! Loading real Pack folders: the fixtures in `tests/packs/`, and the placeholder Pack the app ships with.
 
+mod common;
+
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
-use std::{env, fs, process};
 
+use common::TestFolder;
 use pet_content::{PackError, discover, load};
 use pet_core::pack::{AnimationId, EmoteId, EmoteMode, Situation};
 
@@ -17,34 +20,6 @@ fn fixture(name: &str) -> PathBuf {
 
 fn placeholder() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../content/placeholder")
-}
-
-/// A folder of its own for each test, removed afterwards.
-struct TestFolder(PathBuf);
-
-impl TestFolder {
-    fn new(test: &str) -> Self {
-        let folder = env::temp_dir().join(format!("pet-content-{}-{test}", process::id()));
-        let _ = fs::remove_dir_all(&folder);
-        fs::create_dir_all(&folder).expect("make a test folder");
-        Self(folder)
-    }
-
-    fn path(&self) -> &Path {
-        &self.0
-    }
-
-    fn write(&self, file: &str, contents: &[u8]) {
-        let path = self.0.join(file);
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(path, contents).unwrap();
-    }
-}
-
-impl Drop for TestFolder {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
 }
 
 fn where_(errors: &[PackError]) -> Vec<(&str, &str)> {

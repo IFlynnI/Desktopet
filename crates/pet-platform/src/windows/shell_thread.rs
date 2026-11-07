@@ -18,7 +18,9 @@ use windows::core::{PCWSTR, w};
 
 use super::foreground::{self, Foreground};
 use super::hotkey::Hotkey;
+use super::monitor::{home_work_area, read_home_work_area};
 use super::tray;
+use super::work_area::WorkAreaWatch;
 use crate::{ShellEvent, TrayIconImage, Wake};
 
 /// How a second launch finds the message window.
@@ -132,7 +134,9 @@ fn run(
     let window = MessageWindow::create();
     let hotkey = Hotkey::register(window.0);
     let _foreground = Foreground::start(foreground::read_snapshot, notify, return_delay);
-    // The Overlay shows after this, so by then the hotkey works, and a fullscreen app already in front has been reported.
+    let _work_area = WorkAreaWatch::start(home_work_area(), read_home_work_area, notify);
+    // The Overlay shows after this, so by then the hotkey works, a fullscreen app already in front has been reported, and
+    // any later work-area change will be.
     // If the caller has gone, there's nobody to tell.
     let _ = started.send(window.0.0 as isize);
     if hotkey.is_none() {
